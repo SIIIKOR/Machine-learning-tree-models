@@ -6,6 +6,19 @@ from collections import Counter
 
 class Node:
     def __init__(self, feature_index=None, threshold=None, left=None, right=None, info_gain=None):
+        """
+        Decision node.
+        if feature value <= threshold:
+            go to the left node
+        else:
+            go to the right node
+
+        :param feature_index: Index of feature which will split data.
+        :param threshold: Value by which data will be split.
+        :param left: Dataset with column containing values smaller than threshold.
+        :param right: Dataset with column containing values greater than threshold.
+        :param info_gain: Information gain.
+        """
         self.feature_index = feature_index
         self.threshold = threshold
         self.left = left
@@ -18,17 +31,26 @@ class Node:
 
 class Leaf(Node):
     def __init__(self, value, size=None):
+        """
+        Leaf node.
+        At the end, every sample lands in one.
+        It tells what it have been classified as.
+
+        :param value: Prediction output.
+        :param size: Amount of samples.
+        """
         super().__init__()
         self.value = value
         self.size = size
 
     def __str__(self):
-        return f"value: {self.value}, size: {self.size}"
+        return f"value: {self.value}\nsize: {self.size}"
 
 
 class ClassificationTree:
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
         """
+        Classification Tree - ML classification algorithm.
 
         :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
         :param min_sample_split: Minimal samples required to split dataset.
@@ -42,22 +64,25 @@ class ClassificationTree:
     @property
     def features(self):
         """
+        Returns column names of the dataset.
 
-        :return: Returns nothing.
+        :return: List of names of the columns.
         """
         return self.dataset.columns
 
     @property
     def numpy_data(self):
         """
+        Returns np.array with the data.
 
-        :return: Returns nothing.
+        :return: dataset transformed to np.array.
         """
         return self.dataset.to_numpy()
 
     @staticmethod
     def generate_thresholds(column):
         """
+        Generates thresholds which are the mean of every two values.
 
         :param column: Numeric 1d np.array.
         :return: Yields threshold.
@@ -69,6 +94,7 @@ class ClassificationTree:
     @staticmethod
     def get_leaf_value(dataset):
         """
+        Returns most frequently occurring value in a column.
 
         :param dataset: Dataset with merged train and target columns.
         :return: Most frequently occurring value in given dataset target column.
@@ -79,6 +105,7 @@ class ClassificationTree:
     @staticmethod
     def split(dataset, feature_index, threshold):
         """
+        Splits the data in two.
 
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_index: Column by which threshold dataset will be split.
@@ -92,6 +119,7 @@ class ClassificationTree:
 
     def get_optimal_split(self, dataset, feature_range):
         """
+        Returns the best split for the given dataset.
 
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
@@ -119,6 +147,7 @@ class ClassificationTree:
 
     def fit(self, x=None, target=None):
         """
+        Builds up the tree.
 
         :param x: Training dataset.
         :param target: Target dataset.
@@ -126,6 +155,7 @@ class ClassificationTree:
         """
         def build_tree(dataset, depth=0):
             """
+            Recursive function for building tree.
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
             :param depth: Current depth of this instance.
@@ -151,6 +181,7 @@ class ClassificationTree:
     @staticmethod
     def gini_index(dataset_left, dataset_right):
         """
+        Calculates gini index for given datasets and decides whether it was the last split.
 
         :param dataset_left: Dataset with column containing values smaller than some threshold.
         :param dataset_right: Dataset with column containing values greater than some threshold.
@@ -180,6 +211,7 @@ class ClassificationTree:
 
     def print_tree(self, indent="-", target_names=None):
         """
+        Prints out the tree structure.
 
         :param indent: Symbol used to make indents.
         :param target_names: List with names of target classes.
@@ -187,6 +219,7 @@ class ClassificationTree:
         """
         def _print_tree(node=None, multi=1):
             """
+            Recursive function for creating string representation of the tree.
 
             :param node: Current worked on node.
             :param multi: Amount of indents required to represent this node.
