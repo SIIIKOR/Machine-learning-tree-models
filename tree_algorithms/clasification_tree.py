@@ -181,11 +181,17 @@ class ClassificationTree:
     def print_tree(self, indent="-", target_names=None):
         """
 
-        :param indent:
-        :param target_names:
-        :return:
+        :param indent: Symbol used to make indents.
+        :param target_names: List with names of target classes.
+        :return: String representation of the tree.
         """
         def _print_tree(node=None, multi=1):
+            """
+
+            :param node: Current worked on node.
+            :param multi: Amount of indents required to represent this node.
+            :return: Returns nothing.
+            """
             if node is None:
                 node = self.root
             if isinstance(node, Leaf):
