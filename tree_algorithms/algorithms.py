@@ -1,5 +1,5 @@
-import numpy as np
 from collections import Counter
+import numpy as np
 
 
 class Node:
@@ -207,37 +207,9 @@ class ClassificationTree:
                     len(dataset_left) + len(dataset_right))
         return weighted_gini, is_final
 
-    def print_tree(self, indent="-", target_names=None):
-        """
-        Prints out the tree structure.
-
-        :param indent: Symbol used to make indents.
-        :param target_names: List with names of target classes.
-        :return: String representation of the tree.
-        """
-        def _print_tree(node=None, multi=1):
-            """
-            Recursive function for creating string representation of the tree.
-
-            :param node: Current worked on node.
-            :param multi: Amount of indents required to represent this node.
-            :return: Returns nothing.
-            """
-            if node is None:
-                node = self.root
-            if isinstance(node, Leaf):
-                print(f"class: {target_names[int(node.value)]}, size: {node.size}")
-            else:
-                print(self.features[node.feature_index], "<=", node.threshold, "?", node.info_gain)
-                print(f"{multi * indent}left: ", end="")
-                _print_tree(node.left, multi=multi + 1, )
-                print(f"{multi * indent}right: ", end="")
-                _print_tree(node.right, multi=multi + 1)
-
-        return _print_tree()
-
     def predict(self, x):
         """
+        Function to predict values from given data.
 
         :param x: Dataset with data to predict.
         :return: Returns predictions.
@@ -277,3 +249,32 @@ class ClassificationTree:
         """
         target = target.iloc[:, -1].to_numpy()
         return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions) * 100
+
+    def print_tree(self, indent="-", target_names=None):
+        """
+        Prints out the tree structure.
+
+        :param indent: Symbol used to make indents.
+        :param target_names: List with names of target classes.
+        :return: String representation of the tree.
+        """
+        def _print_tree(node=None, multi=1):
+            """
+            Recursive function for creating string representation of the tree.
+
+            :param node: Current worked on node.
+            :param multi: Amount of indents required to represent this node.
+            :return: Returns nothing.
+            """
+            if node is None:
+                node = self.root
+            if isinstance(node, Leaf):
+                print(f"class: {target_names[int(node.value)]}, size: {node.size}")
+            else:
+                print(self.features[node.feature_index], "<=", node.threshold, "?", node.info_gain)
+                print(f"{multi * indent}left: ", end="")
+                _print_tree(node.left, multi=multi + 1, )
+                print(f"{multi * indent}right: ", end="")
+                _print_tree(node.right, multi=multi + 1)
+
+        return _print_tree()

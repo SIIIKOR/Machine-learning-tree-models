@@ -2,7 +2,7 @@ import pandas as pd
 from sklearn.datasets import load_iris
 
 from functions import make_test_data
-from clasification_tree import ClassificationTree
+from algorithms import ClassificationTree
 
 if __name__ == '__main__':
     iris = load_iris()
