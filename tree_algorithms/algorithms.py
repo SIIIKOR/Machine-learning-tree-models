@@ -115,12 +115,13 @@ class ClassificationTree:
         dataset_right = np.array([row for row in dataset if row[feature_index] > threshold])
         return dataset_left, dataset_right
 
-    def get_optimal_split(self, dataset, feature_range):
+    def get_optimal_split(self, dataset, feature_range, eval_func):
         """
         Returns the best split for the given dataset.
 
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
+        :param eval_func: Function used to evaluate the split.
         :return: Dictionary with information about best split: feature_index, threshold,
          left_dataset, right_dataset, split_score, is_final(is it the last split that needs to be done).
         """
@@ -130,15 +131,18 @@ class ClassificationTree:
             thresholds = self.generate_thresholds(np.unique(sorted(dataset[:, feature_index])))
             for threshold in thresholds:
                 dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
-                score, is_final = self.gini_index(dataset_left, dataset_right)
+                eval_output = eval_func(dataset_left, dataset_right, feature_index)
+                score = eval_output["score"]
+                print(score)
                 if score < best_score:
                     best_score = score
                     best_split = {"feature_index": feature_index,
                                   "threshold": threshold,
                                   "dataset_left": dataset_left,
                                   "dataset_right": dataset_right,
-                                  "split_score": best_score,
-                                  "is_final": is_final}
+                                  "split_score": best_score}
+                    if "is_final" in eval_output:
+                        best_split["is_final"] = eval_output["is_final"]
                 if score == 0:
                     return best_split
         return best_split
@@ -161,7 +165,7 @@ class ClassificationTree:
             """
             sample_amount, feature_amount = dataset.shape
             if sample_amount >= self.min_sample_split and depth <= self.max_depth:
-                optimal_split = self.get_optimal_split(dataset, feature_amount - 1)
+                optimal_split = self.get_optimal_split(dataset, feature_amount - 1, self.gini_index)
                 if optimal_split["split_score"] > 0 or (
                         optimal_split["split_score"] == 0 and not optimal_split["is_final"]):
 
@@ -177,14 +181,14 @@ class ClassificationTree:
         self.root = build_tree(self.dataset.to_numpy())
 
     @staticmethod
-    def gini_index(dataset_left, dataset_right):
+    def gini_index(*datasets):
         """
         Calculates gini index for given datasets and decides whether it was the last split.
 
-        :param dataset_left: Dataset with column containing values smaller than some threshold.
-        :param dataset_right: Dataset with column containing values greater than some threshold.
+        :param datasets: Two datasets with column containing values smaller than soe threshold.
         :return: weighted gini index, information whether this split should be final.
         """
+        dataset_left, dataset_right = datasets[0], datasets[1]
         scores = []
         counts = []
         for dataset in [dataset_left, dataset_right]:
@@ -205,7 +209,7 @@ class ClassificationTree:
                 is_final = True
         weighted_gini = (len(dataset_left) * scores[0] + len(dataset_right) * scores[1]) / (
                     len(dataset_left) + len(dataset_right))
-        return weighted_gini, is_final
+        return {"score": weighted_gini, "is_final": is_final}
 
     def predict(self, x):
         """
@@ -278,3 +282,24 @@ class ClassificationTree:
                 _print_tree(node.right, multi=multi + 1)
 
         return _print_tree()
+
+
+class RegressionTree(ClassificationTree):
+    def __init__(self):
+        """
+        Regression Tree - Ml algorithm.
+        """
+        super().__init__()
+
+    @staticmethod
+    def rss_calc(dataset, feature_index):
+        column = dataset[:, feature_index]
+        mean = column.mean()
+        rss = 0
+        for value in column:
+            rss += (value - mean)**2
+        return rss
+
+    def rss_score(self, dataset_left, dataset_right, feature_index):
+        rss = sum([self.rss_calc(dataset, feature_index) for dataset in [dataset_left, dataset_right]])
+        return {"score": rss}
