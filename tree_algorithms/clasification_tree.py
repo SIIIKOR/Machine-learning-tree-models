@@ -1,6 +1,4 @@
 import numpy as np
-import pandas as pd
-from sklearn.datasets import load_iris
 from collections import Counter
 
 
@@ -238,11 +236,44 @@ class ClassificationTree:
 
         return _print_tree()
 
+    def predict(self, x):
+        """
 
-if __name__ == '__main__':
-    iris = load_iris()
-    train_df = pd.DataFrame(data=iris["data"], columns=iris["feature_names"])
-    target_df = pd.DataFrame(data=iris["target"], columns=["target"])
-    t1 = ClassificationTree()
-    t1.fit(train_df, target_df)
-    t1.print_tree(target_names=iris["target_names"])
+        :param x: Dataset with data to predict.
+        :return: Returns predictions.
+        """
+        def make_prediction(sample, node=None):
+            """
+            Recursive function for data prediction.
+
+            :param sample: Vector with data to predict.
+            :param node: Current node.
+            :return: Prediction.
+            """
+            if node is None:
+                node = self.root
+            if isinstance(node, Leaf):
+                return node.value
+            else:
+                feature_index = node.feature_index
+                threshold = node.threshold
+                if sample[feature_index] <= threshold:
+                    return make_prediction(sample, node.left)
+                else:
+                    return make_prediction(sample, node.right)
+
+        test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
+        predictions = [make_prediction(sample) for sample in test]
+        return predictions
+
+    @staticmethod
+    def prediction_score(predictions, target):
+        """
+        Function for calculating Success rate of prediction.
+
+        :param predictions: List with predictions.
+        :param target: Real values.
+        :return: Success rate of prediction.
+        """
+        target = target.iloc[:, -1].to_numpy()
+        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions) * 100
