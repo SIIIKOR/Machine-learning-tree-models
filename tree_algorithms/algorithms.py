@@ -1,4 +1,5 @@
 from collections import Counter
+from abc import ABC
 
 import numpy as np
 import pandas as pd
@@ -49,10 +50,10 @@ class Leaf(Node):
         return f"value: {self.value}\nsize: {self.size}"
 
 
-class ClassificationTree:
+class Tree(ABC):
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
         """
-        Classification Tree - ML classification algorithm.
+        Abstract class used to inherit from for classification tree and regression tree.
 
         :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
         :param min_sample_split: Minimal samples required to split dataset.
@@ -62,8 +63,8 @@ class ClassificationTree:
         self.root = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
-        self.eval_func_split = self.gini_index
-        self.eval_func_leaf = self.get_most_common_value
+        self.eval_func_split = None
+        self.eval_func_leaf = None
 
     @property
     def features(self):
@@ -94,17 +95,6 @@ class ClassificationTree:
         for i in range(len(column)):
             if i != len(column) - 1:
                 yield (column[i] + column[i + 1]) / 2
-
-    @staticmethod
-    def get_most_common_value(dataset):
-        """
-        Returns most frequently occurring value in a column.
-
-        :param dataset: Dataset with merged train and target columns.
-        :return: Most frequently occurring value in given dataset target column.
-        """
-        count = Counter(dataset[:, -1])
-        return max(count, key=lambda x: count[x])
 
     @staticmethod
     def split(dataset, feature_index, threshold):
@@ -163,12 +153,12 @@ class ClassificationTree:
         :param target: Target dataset.
         :return: Returns nothing.
         """
-        def build_tree(dataset, dataset_rss=None, depth=0):
+        def build_tree(dataset, datasets_rss=None, depth=0):
             """
             Recursive function for building tree.
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
-            :param dataset_rss: If this is regression tree, this contains rss of the dataset
+            :param datasets_rss: If this is regression tree, this contains rss of the dataset
             :param depth: Current depth of this instance.
             :return: Node object if more splits will be required of Leaf object if no more split will be required.
             """
@@ -187,51 +177,20 @@ class ClassificationTree:
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
                         return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
                 else:
-                    dataset_rss = optimal_split["dataset_rss"]
+                    datasets_rss = optimal_split["datasets_rss"]
                     if split_score > 0:
-                        left_subtree = build_tree(dataset_left, dataset_rss[0], depth=depth + 1)
-                        right_subtree = build_tree(dataset_right, dataset_rss[1], depth=depth + 1)
+                        left_subtree = build_tree(dataset_left, datasets_rss[0], depth=depth + 1)
+                        right_subtree = build_tree(dataset_right, datasets_rss[1], depth=depth + 1)
                         return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
 
             if isinstance(self, ClassificationTree):
-                return Leaf(self.get_most_common_value(dataset), len(dataset))
-            return Leaf(dataset_rss, len(dataset))
+                return Leaf(self.eval_func_leaf(dataset), len(dataset))
+            return Leaf(datasets_rss, len(dataset))
 
         if not self.dataset:
             self.dataset = x
         self.dataset["target"] = target
         self.root = build_tree(self.dataset.to_numpy())
-
-    @staticmethod
-    def gini_index(*datasets):
-        """
-        Calculates gini index for given datasets and decides whether it was the last split.
-
-        :param datasets: Two datasets with column containing values smaller than soe threshold.
-        :return: weighted gini index, information whether this split should be final.
-        """
-        dataset_left, dataset_right = datasets[0], datasets[1]
-        scores = []
-        counts = []
-        for dataset in [dataset_left, dataset_right]:
-            count = Counter(dataset[:, -1])
-            counts.append(count)
-            score = 0
-            for value in count:
-                score += (count[value] / len(dataset)) ** 2
-            scores.append(1 - score)
-
-        is_final = False
-        is_single = True
-        for count in counts:
-            if len(count) != 1:
-                is_single = False
-        if is_single:
-            if counts[0].keys() == counts[1].keys():
-                is_final = True
-        weighted_gini = (len(dataset_left) * scores[0] + len(dataset_right) * scores[1]) / (
-                    len(dataset_left) + len(dataset_right))
-        return {"score": weighted_gini, "is_final": is_final}
 
     def predict(self, x):
         """
@@ -264,18 +223,6 @@ class ClassificationTree:
         predictions = [make_prediction(sample) for sample in test]
         return predictions
 
-    @staticmethod
-    def prediction_score(predictions, target):
-        """
-        Function for calculating Success rate of prediction.
-
-        :param predictions: List with predictions.
-        :param target: Real values.
-        :return: Success rate of prediction.
-        """
-        target = target.iloc[:, -1].to_numpy()
-        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions)
-
     def print_tree(self, indent="-", target_names=None):
         """
         Prints out the tree structure.
@@ -306,7 +253,75 @@ class ClassificationTree:
         return _print_tree()
 
 
-class RegressionTree(ClassificationTree):
+class ClassificationTree(Tree):
+    def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
+        """
+        Classification Tree - ML classification algorithm.
+
+        :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
+        :param min_sample_split: Minimal samples required to split dataset.
+        :param max_depth: Maximal depth of the tree.
+        """
+        super().__init__(dataset, min_sample_split, max_depth)
+        self.eval_func_split = self.gini_index
+        self.eval_func_leaf = self.get_most_common_value
+
+    @staticmethod
+    def get_most_common_value(dataset):
+        """
+        Returns most frequently occurring value in a column.
+
+        :param dataset: Dataset with merged train and target columns.
+        :return: Most frequently occurring value in given dataset target column.
+        """
+        count = Counter(dataset[:, -1])
+        return max(count, key=lambda x: count[x])
+
+    @staticmethod
+    def gini_index(*datasets):
+        """
+        Calculates gini index for given datasets and decides whether it was the last split.
+
+        :param datasets: Two datasets with column containing values smaller than soe threshold.
+        :return: weighted gini index, information whether this split should be final.
+        """
+        dataset_left, dataset_right = datasets[0], datasets[1]
+        scores = []
+        counts = []
+        for dataset in [dataset_left, dataset_right]:
+            count = Counter(dataset[:, -1])
+            counts.append(count)
+            score = 0
+            for value in count:
+                score += (count[value] / len(dataset)) ** 2
+            scores.append(1 - score)
+
+        is_final = False
+        is_single = True
+        for count in counts:
+            if len(count) != 1:
+                is_single = False
+        if is_single:
+            if counts[0].keys() == counts[1].keys():
+                is_final = True
+        weighted_gini = (len(dataset_left) * scores[0] + len(dataset_right) * scores[1]) / (
+                    len(dataset_left) + len(dataset_right))
+        return {"score": weighted_gini, "is_final": is_final}
+
+    @staticmethod
+    def prediction_score(predictions, target):
+        """
+        Function for calculating Success rate of prediction.
+
+        :param predictions: List with predictions.
+        :param target: Real values.
+        :return: Success rate of prediction.
+        """
+        target = target.iloc[:, -1].to_numpy()
+        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions)
+
+
+class RegressionTree(Tree):
     """
     Regression Tree - Ml algorithm.
     """
