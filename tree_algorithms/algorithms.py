@@ -180,22 +180,22 @@ class ClassificationTree:
                 feature_index = optimal_split["feature_index"]
                 threshold = optimal_split["threshold"]
                 split_score = optimal_split["split_score"]
-                if isinstance(self, ClassificationTree):
-                    is_final = optimal_split["is_final"]
-                    if split_score > 0 or (split_score == 0 and not is_final):
-                        left_subtree = build_tree(dataset_left, depth=depth + 1)
-                        right_subtree = build_tree(dataset_right, depth=depth + 1)
-                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
-                else:
+                if isinstance(self, RegressionTree):
                     dataset_rss = optimal_split["dataset_rss"]
                     if split_score > 0:
                         left_subtree = build_tree(dataset_left, dataset_rss[0], depth=depth + 1)
                         right_subtree = build_tree(dataset_right, dataset_rss[1], depth=depth + 1)
                         return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
+                else:
+                    is_final = optimal_split["is_final"]
+                    if split_score > 0 or (split_score == 0 and not is_final):
+                        left_subtree = build_tree(dataset_left, depth=depth + 1)
+                        right_subtree = build_tree(dataset_right, depth=depth + 1)
+                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
 
-            if isinstance(self, ClassificationTree):
-                return Leaf(self.get_most_common_value(dataset), len(dataset))
-            return Leaf(dataset_rss, len(dataset))
+            if isinstance(self, RegressionTree):
+                return Leaf(dataset_rss, len(dataset))
+            return Leaf(self.get_most_common_value(dataset), len(dataset))
 
         if not self.dataset:
             self.dataset = x
