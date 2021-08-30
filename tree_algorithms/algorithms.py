@@ -32,7 +32,7 @@ class Node:
         return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
 
 
-class Leaf(Node):
+class Leaf:
     def __init__(self, value, size=None):
         """
         Leaf node.
@@ -42,7 +42,6 @@ class Leaf(Node):
         :param value: Prediction output.
         :param size: Amount of samples.
         """
-        super().__init__()
         self.value = value
         self.size = size
 
@@ -135,12 +134,9 @@ class Tree(ABC):
                                   "threshold": threshold,
                                   "dataset_left": dataset_left,
                                   "dataset_right": dataset_right,
-                                  "split_score": best_score,
-                                  "is_final": False}
+                                  "split_score": best_score}
                     if "is_final" in eval_output:
                         best_split["is_final"] = eval_output["is_final"]
-                    elif "datasets_rss" in eval_output:
-                        best_split["datasets_rss"] = eval_output["datasets_rss"]
                 if score == 0:
                     return best_split
         return best_split
@@ -153,12 +149,11 @@ class Tree(ABC):
         :param target: Target dataset.
         :return: Returns nothing.
         """
-        def build_tree(dataset, datasets_rss=None, depth=0):
+        def build_tree(dataset, depth=0):
             """
             Recursive function for building tree.
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
-            :param datasets_rss: If this is regression tree, this contains rss of the dataset
             :param depth: Current depth of this instance.
             :return: Node object if more splits will be required of Leaf object if no more split will be required.
             """
@@ -177,15 +172,11 @@ class Tree(ABC):
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
                         return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
                 else:
-                    datasets_rss = optimal_split["datasets_rss"]
-                    if split_score > 0:
-                        left_subtree = build_tree(dataset_left, datasets_rss[0], depth=depth + 1)
-                        right_subtree = build_tree(dataset_right, datasets_rss[1], depth=depth + 1)
-                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
+                    left_subtree = build_tree(dataset_left, depth=depth + 1)
+                    right_subtree = build_tree(dataset_right, depth=depth + 1)
+                    return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
 
-            if isinstance(self, ClassificationTree):
-                return Leaf(self.eval_func_leaf(dataset), len(dataset))
-            return Leaf(datasets_rss, len(dataset))
+            return Leaf(self.eval_func_leaf(dataset), len(dataset))
 
         if not self.dataset:
             self.dataset = x
@@ -328,6 +319,7 @@ class RegressionTree(Tree):
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
         super().__init__(dataset, min_sample_split, max_depth)
         self.eval_func_split = self.rss_score
+        self.eval_func_leaf = self.get_avg_value
 
     @staticmethod
     def rss_calc(dataset, feature_index):
@@ -346,8 +338,16 @@ class RegressionTree(Tree):
     def prediction_score(predictions, target):
         vis_df = pd.DataFrame()
         vis_df["predicted"] = predictions
-        vis_df["actual"] = target
+        vis_df["actual"] = target.to_numpy()
         sns.scatterplot(data=vis_df)
         plt.show()
         rss_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
+        print(vis_df)
         return rss_score_final
+
+    @staticmethod
+    def get_avg_value(dataset):
+        if len(dataset) > 1:
+            return dataset[:, -1].mean()
+        else:
+            return dataset[:, -1]
