@@ -12,7 +12,7 @@ if __name__ == '__main__':
     # iris = load_iris()
     # train_df = pd.DataFrame(data=iris["data"], columns=iris["feature_names"])
     # target_df = pd.DataFrame(data=iris["target"], columns=["target"])
-    # train_df, target_df, test_df = make_test_data(train_df, target_df, 147)
+    # train_df, target_df, test_df = make_test_data(train_df, target_df, 10)
     # print(train_df.shape)
     # print(target_df.shape)
     # print(test_df.shape)
