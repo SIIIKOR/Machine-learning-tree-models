@@ -1,9 +1,13 @@
 from collections import Counter
+
 import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 class Node:
-    def __init__(self, feature_index=None, threshold=None, left=None, right=None, info_gain=None):
+    def __init__(self, feature_index=None, threshold=None, left=None, right=None, split_score=None):
         """
         Decision node.
         if feature value <= threshold:
@@ -15,13 +19,13 @@ class Node:
         :param threshold: Value by which data will be split.
         :param left: Dataset with column containing values smaller than threshold.
         :param right: Dataset with column containing values greater than threshold.
-        :param info_gain: Information gain.
+        :param split_score: Score of the split.
         """
         self.feature_index = feature_index
         self.threshold = threshold
         self.left = left
         self.right = right
-        self.info_gain = info_gain
+        self.split_score = split_score
 
     def __str__(self):
         return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
@@ -58,6 +62,8 @@ class ClassificationTree:
         self.root = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
+        self.eval_func_split = self.gini_index
+        self.eval_func_leaf = self.get_most_common_value
 
     @property
     def features(self):
@@ -90,7 +96,7 @@ class ClassificationTree:
                 yield (column[i] + column[i + 1]) / 2
 
     @staticmethod
-    def get_leaf_value(dataset):
+    def get_most_common_value(dataset):
         """
         Returns most frequently occurring value in a column.
 
@@ -115,13 +121,13 @@ class ClassificationTree:
         dataset_right = np.array([row for row in dataset if row[feature_index] > threshold])
         return dataset_left, dataset_right
 
-    def get_optimal_split(self, dataset, feature_range, eval_func):
+    def get_optimal_split(self, dataset, feature_range, eval_func_split):
         """
         Returns the best split for the given dataset.
 
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
-        :param eval_func: Function used to evaluate the split.
+        :param eval_func_split: Function used to evaluate the split.
         :return: Dictionary with information about best split: feature_index, threshold,
          left_dataset, right_dataset, split_score, is_final(is it the last split that needs to be done).
         """
@@ -131,18 +137,20 @@ class ClassificationTree:
             thresholds = self.generate_thresholds(np.unique(sorted(dataset[:, feature_index])))
             for threshold in thresholds:
                 dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
-                eval_output = eval_func(dataset_left, dataset_right, feature_index)
+                eval_output = eval_func_split(dataset_left, dataset_right, feature_index)
                 score = eval_output["score"]
-                print(score)
                 if score < best_score:
                     best_score = score
                     best_split = {"feature_index": feature_index,
                                   "threshold": threshold,
                                   "dataset_left": dataset_left,
                                   "dataset_right": dataset_right,
-                                  "split_score": best_score}
+                                  "split_score": best_score,
+                                  "is_final": False}
                     if "is_final" in eval_output:
                         best_split["is_final"] = eval_output["is_final"]
+                    elif "datasets_rss" in eval_output:
+                        best_split["datasets_rss"] = eval_output["datasets_rss"]
                 if score == 0:
                     return best_split
         return best_split
@@ -155,25 +163,39 @@ class ClassificationTree:
         :param target: Target dataset.
         :return: Returns nothing.
         """
-        def build_tree(dataset, depth=0):
+        def build_tree(dataset, dataset_rss=None, depth=0):
             """
             Recursive function for building tree.
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
+            :param dataset_rss: If this is regression tree, this contains rss of the dataset
             :param depth: Current depth of this instance.
             :return: Node object if more splits will be required of Leaf object if no more split will be required.
             """
             sample_amount, feature_amount = dataset.shape
             if sample_amount >= self.min_sample_split and depth <= self.max_depth:
-                optimal_split = self.get_optimal_split(dataset, feature_amount - 1, self.gini_index)
-                if optimal_split["split_score"] > 0 or (
-                        optimal_split["split_score"] == 0 and not optimal_split["is_final"]):
+                optimal_split = self.get_optimal_split(dataset, feature_amount - 1, self.eval_func_split)
+                dataset_left = optimal_split["dataset_left"]
+                dataset_right = optimal_split["dataset_right"]
+                feature_index = optimal_split["feature_index"]
+                threshold = optimal_split["threshold"]
+                split_score = optimal_split["split_score"]
+                if isinstance(self, ClassificationTree):
+                    is_final = optimal_split["is_final"]
+                    if split_score > 0 or (split_score == 0 and not is_final):
+                        left_subtree = build_tree(dataset_left, depth=depth + 1)
+                        right_subtree = build_tree(dataset_right, depth=depth + 1)
+                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
+                else:
+                    dataset_rss = optimal_split["dataset_rss"]
+                    if split_score > 0:
+                        left_subtree = build_tree(dataset_left, dataset_rss[0], depth=depth + 1)
+                        right_subtree = build_tree(dataset_right, dataset_rss[1], depth=depth + 1)
+                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
 
-                    left_subtree = build_tree(optimal_split["dataset_left"], depth=depth + 1)
-                    right_subtree = build_tree(optimal_split["dataset_right"], depth=depth + 1)
-                    return Node(optimal_split["feature_index"], optimal_split["threshold"],
-                                left_subtree, right_subtree, optimal_split["split_score"])
-            return Leaf(self.get_leaf_value(dataset), len(dataset))
+            if isinstance(self, ClassificationTree):
+                return Leaf(self.get_most_common_value(dataset), len(dataset))
+            return Leaf(dataset_rss, len(dataset))
 
         if not self.dataset:
             self.dataset = x
@@ -252,7 +274,7 @@ class ClassificationTree:
         :return: Success rate of prediction.
         """
         target = target.iloc[:, -1].to_numpy()
-        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions) * 100
+        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions)
 
     def print_tree(self, indent="-", target_names=None):
         """
@@ -273,9 +295,9 @@ class ClassificationTree:
             if node is None:
                 node = self.root
             if isinstance(node, Leaf):
-                print(f"class: {target_names[int(node.value)]}, size: {node.size}")
+                print(f"class: {target_names[int(node.value)] if target_names else node.value}, size: {node.size}")
             else:
-                print(self.features[node.feature_index], "<=", node.threshold, "?", node.info_gain)
+                print(self.features[node.feature_index], "<=", node.threshold, "?", node.split_score)
                 print(f"{multi * indent}left: ", end="")
                 _print_tree(node.left, multi=multi + 1, )
                 print(f"{multi * indent}right: ", end="")
@@ -285,11 +307,12 @@ class ClassificationTree:
 
 
 class RegressionTree(ClassificationTree):
-    def __init__(self):
-        """
-        Regression Tree - Ml algorithm.
-        """
-        super().__init__()
+    """
+    Regression Tree - Ml algorithm.
+    """
+    def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
+        super().__init__(dataset, min_sample_split, max_depth)
+        self.eval_func_split = self.rss_score
 
     @staticmethod
     def rss_calc(dataset, feature_index):
@@ -301,5 +324,15 @@ class RegressionTree(ClassificationTree):
         return rss
 
     def rss_score(self, dataset_left, dataset_right, feature_index):
-        rss = sum([self.rss_calc(dataset, feature_index) for dataset in [dataset_left, dataset_right]])
-        return {"score": rss}
+        datasets_rss = [self.rss_calc(dataset, feature_index) for dataset in [dataset_left, dataset_right]]
+        return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
+
+    @staticmethod
+    def prediction_score(predictions, target):
+        vis_df = pd.DataFrame()
+        vis_df["predicted"] = predictions
+        vis_df["actual"] = target
+        sns.scatterplot(data=vis_df)
+        plt.show()
+        rss_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
+        return rss_score_final
