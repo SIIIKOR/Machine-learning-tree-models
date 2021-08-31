@@ -347,7 +347,7 @@ class RegressionTree(Tree):
 
     @staticmethod
     def get_avg_value(dataset):
-        if len(dataset) > 1:
+        if dataset.shape[0] > 1:
             return dataset[:, -1].mean()
         else:
-            return dataset[:, -1]
+            return dataset[:, -1][0]
