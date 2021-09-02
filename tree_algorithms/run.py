@@ -32,4 +32,4 @@ if __name__ == '__main__':
     t2 = RegressionTree(min_sample_split=20)
     t2.fit(train_df, target_df)
     predictions = np.array(t2.predict(test_df))
-    print(t2.prediction_score(predictions, test_df.iloc[:, -1]))
+    print(t2.prediction_score(predictions, test_df))
