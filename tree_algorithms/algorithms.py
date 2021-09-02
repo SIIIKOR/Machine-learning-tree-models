@@ -3,11 +3,13 @@ from abc import ABC
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 
-class Node:
+class Node(ABC):
+    pass
+
+
+class DecisionNode(Node):
     def __init__(self, feature_index=None, threshold=None, left=None, right=None, split_score=None):
         """
         Decision node.
@@ -18,8 +20,8 @@ class Node:
 
         :param feature_index: Index of feature which will split data.
         :param threshold: Value by which data will be split.
-        :param left: Dataset with column containing values smaller than threshold.
-        :param right: Dataset with column containing values greater than threshold.
+        :param left: DecisionNode|Leaf with Dataset with column containing values smaller than threshold.
+        :param right: DecisionNode|Leaf with Dataset with column containing values greater than threshold.
         :param split_score: Score of the split.
         """
         self.feature_index = feature_index
@@ -32,7 +34,7 @@ class Node:
         return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
 
 
-class Leaf:
+class Leaf(Node):
     def __init__(self, value, size=None):
         """
         Leaf node.
@@ -50,12 +52,12 @@ class Leaf:
 
 
 class Tree(ABC):
-    def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
+    def __init__(self, dataset=None, min_sample_split=2, max_depth=5):
         """
         Abstract class used to inherit from for classification tree and regression tree.
 
         :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
-        :param min_sample_split: Minimal samples required to split dataset.
+        :param min_sample_split: Pre-pruning - Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
         self.dataset = dataset
@@ -155,7 +157,7 @@ class Tree(ABC):
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
             :param depth: Current depth of this instance.
-            :return: Node object if more splits will be required of Leaf object if no more split will be required.
+            :return: DecisionNode if more splits will be required of Leaf object if no more split will be required.
             """
             sample_amount, feature_amount = dataset.shape
             if sample_amount >= self.min_sample_split and depth <= self.max_depth:
@@ -170,11 +172,11 @@ class Tree(ABC):
                     if split_score > 0 or (split_score == 0 and not is_final):
                         left_subtree = build_tree(dataset_left, depth=depth + 1)
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
-                        return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
+                        return DecisionNode(feature_index, threshold, left_subtree, right_subtree, split_score)
                 else:
                     left_subtree = build_tree(dataset_left, depth=depth + 1)
                     right_subtree = build_tree(dataset_right, depth=depth + 1)
-                    return Node(feature_index, threshold, left_subtree, right_subtree, split_score)
+                    return DecisionNode(feature_index, threshold, left_subtree, right_subtree, split_score)
 
             return Leaf(self.eval_func_leaf(dataset), len(dataset))
 
@@ -260,7 +262,7 @@ class ClassificationTree(Tree):
     @staticmethod
     def get_most_common_value(dataset):
         """
-        Returns most frequently occurring value in a column.
+        Split evaluate function used to return most frequently occurring value in a column.
 
         :param dataset: Dataset with merged train and target columns.
         :return: Most frequently occurring value in given dataset target column.
@@ -273,7 +275,7 @@ class ClassificationTree(Tree):
         """
         Calculates gini index for given datasets and decides whether it was the last split.
 
-        :param datasets: Two datasets with column containing values smaller than soe threshold.
+        :param datasets: Two datasets with column containing values smaller than some threshold.
         :return: weighted gini index, information whether this split should be final.
         """
         dataset_left, dataset_right = datasets[0], datasets[1]
@@ -315,6 +317,10 @@ class ClassificationTree(Tree):
 class RegressionTree(Tree):
     """
     Regression Tree - Ml algorithm.
+
+    :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
+    :param min_sample_split: Minimal samples required to split dataset.
+    :param max_depth: Maximal depth of the tree.
     """
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
         super().__init__(dataset, min_sample_split, max_depth)
@@ -323,6 +329,13 @@ class RegressionTree(Tree):
 
     @staticmethod
     def rss_calc(dataset, feature_index):
+        """
+        Calculates rss of column in dataset.
+
+        :param dataset: Dataset with training data.
+        :param feature_index: Index of column to calculate.
+        :return: Float rss score.
+        """
         column = dataset[:, feature_index]
         mean = column.mean()
         rss = 0
@@ -331,22 +344,40 @@ class RegressionTree(Tree):
         return rss
 
     def rss_score(self, dataset_left, dataset_right, feature_index):
+        """
+        Calculates sum of rss for datasets
+
+        :param dataset_left: Dataset with column smaller than some threshold.
+        :param dataset_right: Dataset with column grater than some threshold.
+        :param feature_index: Index of feature by which rss will be calculated.
+        :return: Returns rss of datasets.
+        """
         datasets_rss = [self.rss_calc(dataset, feature_index) for dataset in [dataset_left, dataset_right]]
         return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
 
     @staticmethod
     def prediction_score(predictions, target):
+        """
+        Calculates mse of prediction.
+
+        :param predictions: np.array of model predictions.
+        :param target: Dataframe with target data.
+        :return: Float mse score
+        """
         vis_df = pd.DataFrame()
         vis_df["predicted"] = predictions
-        vis_df["actual"] = target.to_numpy()
-        sns.scatterplot(data=vis_df)
-        plt.show()
-        rss_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
-        print(vis_df)
-        return rss_score_final
+        vis_df["actual"] = target.iloc[:, -1].to_numpy()
+        mse_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
+        return mse_score_final
 
     @staticmethod
     def get_avg_value(dataset):
+        """
+        Split evaluation function used to calculate mean of target column.
+
+        :param dataset: Dataset with training data.
+        :return:
+        """
         if dataset.shape[0] > 1:
             return dataset[:, -1].mean()
         else:
