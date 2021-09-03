@@ -1,7 +1,7 @@
 import pandas as pd
 from sklearn.datasets import load_iris, load_boston
 
-from functions import make_test_data
+from functions import make_test_data, cross_validate
 from algorithms import ClassificationTree, RegressionTree
 
 import numpy as np
@@ -29,7 +29,11 @@ if __name__ == '__main__':
     print(train_df.shape)
     print(target_df.shape)
     print(test_df.shape)
-    t2 = RegressionTree(min_sample_split=20)
+    t2 = RegressionTree()
     t2.fit(train_df, target_df)
     predictions = np.array(t2.predict(test_df))
     print(t2.prediction_score(predictions, test_df))
+    predictions = t2.predict(test_df)
+    print(t2.prediction_score(predictions, test_df))
+
+    # best_model = cross_validate(RegressionTree, train_df, target_df)
