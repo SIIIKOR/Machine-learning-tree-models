@@ -10,7 +10,7 @@ class Node(ABC):
 
 
 class DecisionNode(Node):
-    def __init__(self, feature_index, threshold, left, right, *args):
+    def __init__(self, feature_index, threshold, left, right, **kwargs):
         """
         Decision node.
 
@@ -31,7 +31,7 @@ class DecisionNode(Node):
 
 
 class VisDecisionNode(DecisionNode):
-    def __init__(self, feature_index, threshold, left, right, split_score):
+    def __init__(self, feature_index, threshold, left, right, **kwargs):
         """
         Decision node that will be used for visualisation.
 
@@ -42,14 +42,14 @@ class VisDecisionNode(DecisionNode):
         :param split_score: Value indicating quality of the split.
         """
         super().__init__(feature_index, threshold, left, right)
-        self.split_score = split_score
+        self.split_score = kwargs["split_score"]
 
     def __str__(self):
         return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
 
 
 class PruningDecisionNode(DecisionNode):
-    def __init__(self, feature_index, threshold, left, right, parent):
+    def __init__(self, feature_index, threshold, left, right, **kwargs):
         """
         Decision Node that will be used during pruning.
 
@@ -62,11 +62,11 @@ class PruningDecisionNode(DecisionNode):
         :param parent: DecisionNode
         """
         super().__init__(feature_index, threshold, left, right)
-        self.parent = parent
+        self.parent = kwargs["parent"]
 
 
 class Leaf(Node):
-    def __init__(self, value, *args):
+    def __init__(self, value, **kwargs):
         """
         Leaf node.
 
@@ -79,7 +79,7 @@ class Leaf(Node):
 
 
 class VisLeaf(Leaf):
-    def __init__(self, value, size):
+    def __init__(self, value, **kwargs):
         """
         Leaf node used for visualisation.
 
@@ -87,10 +87,24 @@ class VisLeaf(Leaf):
         :param size: Amount of samples.
         """
         super().__init__(value)
-        self.size = size
+        self.size = kwargs["size"]
 
     def __str__(self):
         return f"value: {self.value}\nsize: {self.size}"
+
+
+class PruningLeaf(Leaf):
+    def __init__(self, value, **kwargs):
+        """
+        Leaf node used for pruning tree.
+
+        It contains score which will be used to replace decision nodes with leaf.
+
+        :param value: Prediction output.
+        :param score: Leaf evaluation score.
+        """
+        super().__init__(value)
+        self.score = kwargs["leaf_eval_score"]
 
 
 class Tree(ABC):
@@ -108,6 +122,7 @@ class Tree(ABC):
         self.max_depth = max_depth
 
         self.eval_func_split = None
+        self.get_leaf_prediction_value = None
         self.eval_func_leaf = None
 
         self.node_type = DecisionNode
@@ -218,13 +233,16 @@ class Tree(ABC):
                     if split_score > 0 or (split_score == 0 and not is_final):
                         left_subtree = build_tree(dataset_left, depth=depth + 1)
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
-                        return self.node_type(feature_index, threshold, left_subtree, right_subtree, split_score)
+                        return self.node_type(feature_index, threshold, left_subtree, right_subtree,
+                                              split_score=split_score, parent=None)
                 else:
                     left_subtree = build_tree(dataset_left, depth=depth + 1)
                     right_subtree = build_tree(dataset_right, depth=depth + 1)
-                    return self.node_type(feature_index, threshold, left_subtree, right_subtree, split_score)
+                    return self.node_type(feature_index, threshold, left_subtree, right_subtree,
+                                          split_score=split_score, parent=None)
 
-            return self.leaf_type(self.eval_func_leaf(dataset), len(dataset))
+            return self.leaf_type(self.get_leaf_prediction_value(dataset),
+                                  leaf_eval_score=self.eval_func_leaf, size=len(dataset))
 
         if not self.dataset:
             self.dataset = x
@@ -315,7 +333,7 @@ class ClassificationTree(Tree):
         """
         super().__init__(dataset, min_sample_split, max_depth)
         self.eval_func_split = self.gini_index
-        self.eval_func_leaf = self.get_most_common_value
+        self.get_leaf_prediction_value = self.get_most_common_value
 
     @staticmethod
     def get_most_common_value(dataset):
@@ -383,7 +401,7 @@ class RegressionTree(Tree):
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
         super().__init__(dataset, min_sample_split, max_depth)
         self.eval_func_split = self.rss_score
-        self.eval_func_leaf = self.get_avg_value
+        self.get_leaf_prediction_value = self.get_avg_value
 
     @staticmethod
     def rss_calc(dataset, feature_index):
