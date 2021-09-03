@@ -234,15 +234,15 @@ class Tree(ABC):
                         left_subtree = build_tree(dataset_left, depth=depth + 1)
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
                         return self.node_type(feature_index, threshold, left_subtree, right_subtree,
-                                              split_score=split_score, parent=None)
+                                              split_score=split_score)
                 else:
                     left_subtree = build_tree(dataset_left, depth=depth + 1)
                     right_subtree = build_tree(dataset_right, depth=depth + 1)
                     return self.node_type(feature_index, threshold, left_subtree, right_subtree,
-                                          split_score=split_score, parent=None)
+                                          split_score=split_score)
 
             return self.leaf_type(self.get_leaf_prediction_value(dataset),
-                                  leaf_eval_score=self.eval_func_leaf, size=len(dataset))
+                                  leaf_eval_score=self.eval_func_leaf(dataset), size=len(dataset))
 
         if not self.dataset:
             self.dataset = x
@@ -334,17 +334,30 @@ class ClassificationTree(Tree):
         super().__init__(dataset, min_sample_split, max_depth)
         self.eval_func_split = self.gini_index
         self.get_leaf_prediction_value = self.get_most_common_value
+        self.eval_func_leaf = self.get_amount_of_most_common_value
 
     @staticmethod
     def get_most_common_value(dataset):
         """
-        Split evaluate function used to return most frequently occurring value in a column.
+        Function that sets prediction value for a leaf.
 
         :param dataset: Dataset with merged train and target columns.
         :return: Most frequently occurring value in given dataset target column.
+
         """
         count = Counter(dataset[:, -1])
         return max(count, key=lambda x: count[x])
+
+    @staticmethod
+    def get_amount_of_most_common_value(dataset):
+        """
+        Function used for leaf evaluation for potential pruning.
+
+        :param dataset: Dataset with merged train and target columns.
+        :return: Amount of most commonly occurring value in target column.
+        """
+        count = Counter(dataset[:, -1])
+        return count[max(count, key=lambda x: count[x])]
 
     @staticmethod
     def gini_index(*datasets):
@@ -391,20 +404,22 @@ class ClassificationTree(Tree):
 
 
 class RegressionTree(Tree):
-    """
-    Regression Tree - Ml algorithm.
-
-    :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
-    :param min_sample_split: Minimal samples required to split dataset.
-    :param max_depth: Maximal depth of the tree.
-    """
     def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
+        """
+        Regression Tree - Ml algorithm.
+
+        :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
+        :param min_sample_split: Minimal samples required to split dataset.
+        :param max_depth: Maximal depth of the tree.
+        """
         super().__init__(dataset, min_sample_split, max_depth)
+
         self.eval_func_split = self.rss_score
         self.get_leaf_prediction_value = self.get_avg_value
+        self.eval_func_leaf = self.rss_calc
 
     @staticmethod
-    def rss_calc(dataset, feature_index):
+    def rss_calc(dataset, feature_index=-1):
         """
         Calculates rss of column in dataset.
 
@@ -449,10 +464,10 @@ class RegressionTree(Tree):
     @staticmethod
     def get_avg_value(dataset):
         """
-        Split evaluation function used to calculate mean of target column.
+        Function that sets prediction value for a leaf.
 
         :param dataset: Dataset with training data.
-        :return:
+        :return: Mean of target column or if single sample then just the value.
         """
         if dataset.shape[0] > 1:
             return dataset[:, -1].mean()
