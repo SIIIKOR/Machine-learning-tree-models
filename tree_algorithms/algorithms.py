@@ -10,41 +10,83 @@ class Node(ABC):
 
 
 class DecisionNode(Node):
-    def __init__(self, feature_index=None, threshold=None, left=None, right=None, split_score=None):
+    def __init__(self, feature_index, threshold, left, right, *args):
         """
         Decision node.
+
         if feature value <= threshold:
             go to the left node
         else:
             go to the right node
 
-        :param feature_index: Index of feature which will split data.
-        :param threshold: Value by which data will be split.
-        :param left: DecisionNode|Leaf with Dataset with column containing values smaller than threshold.
-        :param right: DecisionNode|Leaf with Dataset with column containing values greater than threshold.
-        :param split_score: Score of the split.
+        :param feature_index: Index of feature by which decision will be made.
+        :param threshold: Value by which decision will be made.
+        :param left: DecisionNode|Leaf.
+        :param right: DecisionNode|Leaf.
         """
         self.feature_index = feature_index
         self.threshold = threshold
         self.left = left
         self.right = right
+
+
+class VisDecisionNode(DecisionNode):
+    def __init__(self, feature_index, threshold, left, right, split_score):
+        """
+        Decision node that will be used for visualisation.
+
+        :param feature_index: Index of feature by which decision will be made.
+        :param threshold: Value by which decision will be made.
+        :param left: DecisionNode|Leaf.
+        :param right: DecisionNode|Leaf.
+        :param split_score: Value indicating quality of the split.
+        """
+        super().__init__(feature_index, threshold, left, right)
         self.split_score = split_score
 
     def __str__(self):
         return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
 
 
+class PruningDecisionNode(DecisionNode):
+    def __init__(self, feature_index, threshold, left, right, parent):
+        """
+        Decision Node that will be used during pruning.
+
+        It has additional parameter parent, which is pointing at the parent of this node
+
+        :param feature_index: Index of feature by which decision will be made.
+        :param threshold: Value by which decision will be made.
+        :param left: DecisionNode|Leaf.
+        :param right: DecisionNode|Leaf.
+        :param parent: DecisionNode
+        """
+        super().__init__(feature_index, threshold, left, right)
+        self.parent = parent
+
+
 class Leaf(Node):
-    def __init__(self, value, size=None):
+    def __init__(self, value, *args):
         """
         Leaf node.
+
         At the end, every sample lands in one.
         It tells what it have been classified as.
 
         :param value: Prediction output.
-        :param size: Amount of samples.
         """
         self.value = value
+
+
+class VisLeaf(Leaf):
+    def __init__(self, value, size):
+        """
+        Leaf node used for visualisation.
+
+        :param value: Prediction output.
+        :param size: Amount of samples.
+        """
+        super().__init__(value)
         self.size = size
 
     def __str__(self):
@@ -64,8 +106,12 @@ class Tree(ABC):
         self.root = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
+
         self.eval_func_split = None
         self.eval_func_leaf = None
+
+        self.node_type = DecisionNode
+        self.leaf_type = Leaf
 
     @property
     def features(self):
@@ -172,13 +218,13 @@ class Tree(ABC):
                     if split_score > 0 or (split_score == 0 and not is_final):
                         left_subtree = build_tree(dataset_left, depth=depth + 1)
                         right_subtree = build_tree(dataset_right, depth=depth + 1)
-                        return DecisionNode(feature_index, threshold, left_subtree, right_subtree, split_score)
+                        return self.node_type(feature_index, threshold, left_subtree, right_subtree, split_score)
                 else:
                     left_subtree = build_tree(dataset_left, depth=depth + 1)
                     right_subtree = build_tree(dataset_right, depth=depth + 1)
-                    return DecisionNode(feature_index, threshold, left_subtree, right_subtree, split_score)
+                    return self.node_type(feature_index, threshold, left_subtree, right_subtree, split_score)
 
-            return Leaf(self.eval_func_leaf(dataset), len(dataset))
+            return self.leaf_type(self.eval_func_leaf(dataset), len(dataset))
 
         if not self.dataset:
             self.dataset = x
@@ -216,10 +262,13 @@ class Tree(ABC):
         predictions = [make_prediction(sample) for sample in test]
         return predictions
 
-    def print_tree(self, indent="-", target_names=None):
+    def print_tree(self, x=None, target=None, indent="-", target_names=None):
         """
         Prints out the tree structure.
+        Have to create tree with specific Nodes to see size and split_score.
 
+        :param x: Train data for fit function.
+        :param target: Target data for fit function.
         :param indent: Symbol used to make indents.
         :param target_names: List with names of target classes.
         :return: String representation of the tree.
@@ -234,15 +283,24 @@ class Tree(ABC):
             """
             if node is None:
                 node = self.root
-            if isinstance(node, Leaf):
+            if isinstance(node, VisLeaf):
                 print(f"class: {target_names[int(node.value)] if target_names else node.value}, size: {node.size}")
+            if isinstance(node, Leaf):
+                print(f"class: {target_names[int(node.value)] if target_names else node.value}")
             else:
-                print(self.features[node.feature_index], "<=", node.threshold, "?", node.split_score)
+                if isinstance(node, VisDecisionNode):
+                    print(self.features[node.feature_index], "<=", node.threshold, "?", node.split_score)
+                else:
+                    print(self.features[node.feature_index], "<=", node.threshold)
                 print(f"{multi * indent}left: ", end="")
                 _print_tree(node.left, multi=multi + 1, )
                 print(f"{multi * indent}right: ", end="")
                 _print_tree(node.right, multi=multi + 1)
 
+        if x is not None and target is not None:
+            self.node_type = VisDecisionNode
+            self.leaf_type = VisLeaf
+            self.fit(x, target)
         return _print_tree()
 
 

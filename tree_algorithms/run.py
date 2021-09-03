@@ -33,7 +33,6 @@ if __name__ == '__main__':
     t2.fit(train_df, target_df)
     predictions = np.array(t2.predict(test_df))
     print(t2.prediction_score(predictions, test_df))
-    predictions = t2.predict(test_df)
-    print(t2.prediction_score(predictions, test_df))
 
     # best_model = cross_validate(RegressionTree, train_df, target_df)
+    # print(best_model)

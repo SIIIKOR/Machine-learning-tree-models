@@ -2,6 +2,7 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 
+from algorithms import ClassificationTree, RegressionTree
 
 def make_column_numeric(df, column_index):
     """
@@ -48,7 +49,7 @@ def cross_validate(model, train_df, target_df, k=10):
     """
     dataset = pd.concat([train_df, target_df], axis=1)
     sample_amount = dataset.shape[0]
-    models = {}
+    models = []
     for i in range(0, sample_amount, k):
         m = model()
         validate_data_indexes = np.arange(i, i+k if i+k <= sample_amount else sample_amount)
@@ -57,6 +58,12 @@ def cross_validate(model, train_df, target_df, k=10):
         train_df, target_df = new_dataset.iloc[:, :-1], new_dataset.iloc[:, -1]
         m.fit(train_df, target_df)
         predictions = m.predict(validate_data)
-        models[i//k] = [m.prediction_score(predictions, validate_data, i//k), m]
-    min_rss_key = min(models, key=lambda x: models[x])
-    return models[min_rss_key][1]
+        models.append((m.prediction_score(predictions, validate_data), m))
+    print(models)
+    if isinstance(model(), RegressionTree):
+        min_rss_model = min(models, key=lambda x: x[0])
+        best_model = min_rss_model
+    else:
+        max_prediction_percentage = max(models, key=lambda x: x[0])
+        best_model = max_prediction_percentage
+    return best_model[1]
