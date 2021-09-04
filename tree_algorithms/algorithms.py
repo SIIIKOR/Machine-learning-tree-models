@@ -1,4 +1,4 @@
-from collections import Counter
+from collections import Counter, deque
 from abc import ABC
 
 import numpy as np
@@ -10,7 +10,7 @@ class Node(ABC):
 
 
 class DecisionNode(Node):
-    def __init__(self, feature_index, threshold, left, right, **kwargs):
+    def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
         Decision node.
 
@@ -31,7 +31,7 @@ class DecisionNode(Node):
 
 
 class VisDecisionNode(DecisionNode):
-    def __init__(self, feature_index, threshold, left, right, **kwargs):
+    def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
         Decision node that will be used for visualisation.
 
@@ -49,7 +49,7 @@ class VisDecisionNode(DecisionNode):
 
 
 class PruningDecisionNode(DecisionNode):
-    def __init__(self, feature_index, threshold, left, right, **kwargs):
+    def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
         Decision Node that will be used during pruning.
 
@@ -66,7 +66,7 @@ class PruningDecisionNode(DecisionNode):
 
 
 class Leaf(Node):
-    def __init__(self, value, **kwargs):
+    def __init__(self, value=None, **kwargs):
         """
         Leaf node.
 
@@ -79,7 +79,7 @@ class Leaf(Node):
 
 
 class VisLeaf(Leaf):
-    def __init__(self, value, **kwargs):
+    def __init__(self, value=None, **kwargs):
         """
         Leaf node used for visualisation.
 
@@ -94,7 +94,7 @@ class VisLeaf(Leaf):
 
 
 class PruningLeaf(Leaf):
-    def __init__(self, value, **kwargs):
+    def __init__(self, value=None, **kwargs):
         """
         Leaf node used for pruning tree.
 
@@ -208,11 +208,75 @@ class Tree(ABC):
         """
         Builds up the tree.
 
+        Iterative algorithm based on bfs.
+
         :param x: Training dataset.
         :param target: Target dataset.
         :return: Returns nothing.
         """
-        def build_tree(dataset, depth=0):
+
+        def build_tree_iterative(dataset):
+            # left_child, current dataset, parent
+            queue = deque([(False, dataset, None)])
+            depth = 0
+            while queue:
+                # for every node on current level
+                # print(30*"#")
+                for _ in range(len(queue)):
+                    # if depth == 3:
+                    #     queue = False
+                    is_left, current_dataset, current_parent = queue.popleft()
+                    # print(current_dataset.shape)
+                    sample_amount, feature_amount = current_dataset.shape
+                    # if we can we proceed to split the data
+                    if sample_amount >= self.min_sample_split and depth <= self.max_depth:
+                        # splitting
+                        optimal_split = self.get_optimal_split(current_dataset, feature_amount - 1,
+                                                               self.eval_func_split)
+                        # unpacking the data
+                        dataset_left = optimal_split["dataset_left"]
+                        dataset_right = optimal_split["dataset_right"]
+                        # print("left", dataset_left.shape)
+                        # print("right", dataset_right.shape)
+                        feature_index = optimal_split["feature_index"]
+                        threshold = optimal_split["threshold"]
+                        split_score = optimal_split["split_score"]
+                        # if this is classification tree, we have different condition
+                        # for creating leaf rather than decision node
+                        if isinstance(self, ClassificationTree):
+                            is_final = optimal_split["is_final"]
+                            condition = split_score > 0 or (split_score == 0 and not is_final)
+                        else:
+                            condition = True
+
+                        if condition:  # decision node
+                            current_node = self.node_type(feature_index, threshold,
+                                                          split_score=split_score,
+                                                          parent=current_parent)
+                        else:  # leaf, only used in classification tree if node is pure
+                            current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
+                                                          leaf_eval_score=self.eval_func_leaf(current_dataset),
+                                                          size=len(current_dataset))
+                        # if this is not a leaf we proceed to split the data
+                        if not isinstance(current_node, Leaf):
+                            queue.append((True, dataset_left, current_node))
+                            queue.append((False, dataset_right, current_node))
+                    else:  # if we are not allowed to split the data, we create leaf
+                        current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
+                                                      leaf_eval_score=self.eval_func_leaf(current_dataset),
+                                                      size=len(current_dataset))
+                    # if this is not root
+                    if not (not is_left and current_parent is None):
+                        if is_left:  # we assign newly created node to be left child of parent
+                            current_parent.left = current_node
+                        else:
+                            current_parent.right = current_node
+                    else:
+                        self.root = current_node
+                depth += 1  # after iterating over entire level we add 1 to the depth
+            return self.root
+
+        def build_tree_recursive(dataset, depth=0):
             """
             Recursive function for building tree.
 
@@ -231,13 +295,13 @@ class Tree(ABC):
                 if isinstance(self, ClassificationTree):
                     is_final = optimal_split["is_final"]
                     if split_score > 0 or (split_score == 0 and not is_final):
-                        left_subtree = build_tree(dataset_left, depth=depth + 1)
-                        right_subtree = build_tree(dataset_right, depth=depth + 1)
+                        left_subtree = build_tree_recursive(dataset_left, depth=depth + 1)
+                        right_subtree = build_tree_recursive(dataset_right, depth=depth + 1)
                         return self.node_type(feature_index, threshold, left_subtree, right_subtree,
                                               split_score=split_score)
                 else:
-                    left_subtree = build_tree(dataset_left, depth=depth + 1)
-                    right_subtree = build_tree(dataset_right, depth=depth + 1)
+                    left_subtree = build_tree_recursive(dataset_left, depth=depth + 1)
+                    right_subtree = build_tree_recursive(dataset_right, depth=depth + 1)
                     return self.node_type(feature_index, threshold, left_subtree, right_subtree,
                                           split_score=split_score)
 
@@ -247,7 +311,7 @@ class Tree(ABC):
         if not self.dataset:
             self.dataset = x
         self.dataset["target"] = target
-        self.root = build_tree(self.dataset.to_numpy())
+        self.root = build_tree_iterative(self.dataset.to_numpy())
 
     def predict(self, x):
         """
