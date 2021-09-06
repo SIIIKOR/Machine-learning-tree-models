@@ -1,5 +1,6 @@
 from collections import Counter, deque
 from abc import ABC
+import copy
 
 import numpy as np
 import pandas as pd
@@ -12,12 +13,12 @@ class Node(ABC):
 class DecisionNode(Node):
     def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
-        Decision node.
+        Decision root_node.
 
         if feature value <= threshold:
-            go to the left node
+            go to the left root_node
         else:
-            go to the right node
+            go to the right root_node
 
         :param feature_index: Index of feature by which decision will be made.
         :param threshold: Value by which decision will be made.
@@ -33,7 +34,7 @@ class DecisionNode(Node):
 class VisDecisionNode(DecisionNode):
     def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
-        Decision node that will be used for visualisation.
+        Decision root_node that will be used for visualisation.
 
         :param feature_index: Index of feature by which decision will be made.
         :param threshold: Value by which decision will be made.
@@ -44,16 +45,13 @@ class VisDecisionNode(DecisionNode):
         super().__init__(feature_index, threshold, left, right)
         self.split_score = kwargs["split_score"]
 
-    def __str__(self):
-        return f"feature_index: {self.feature_index}\nthreshold: {self.threshold}"
-
 
 class PruningDecisionNode(DecisionNode):
     def __init__(self, feature_index=None, threshold=None, left=None, right=None, **kwargs):
         """
         Decision Node that will be used during pruning.
 
-        It has additional parameter parent, which is pointing at the parent of this node
+        It has additional parameter parent, which is pointing at the parent of this root_node
 
         :param feature_index: Index of feature by which decision will be made.
         :param threshold: Value by which decision will be made.
@@ -68,7 +66,7 @@ class PruningDecisionNode(DecisionNode):
 class Leaf(Node):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf node.
+        Leaf root_node.
 
         At the end, every sample lands in one.
         It tells what it have been classified as.
@@ -81,7 +79,7 @@ class Leaf(Node):
 class VisLeaf(Leaf):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf node used for visualisation.
+        Leaf root_node used for visualisation.
 
         :param value: Prediction output.
         :param size: Amount of samples.
@@ -89,14 +87,11 @@ class VisLeaf(Leaf):
         super().__init__(value)
         self.size = kwargs["size"]
 
-    def __str__(self):
-        return f"value: {self.value}\nsize: {self.size}"
-
 
 class PruningLeaf(Leaf):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf node used for pruning tree.
+        Leaf root_node used for pruning tree.
 
         It contains score which will be used to replace decision nodes with leaf.
 
@@ -204,7 +199,7 @@ class Tree(ABC):
                     return best_split
         return best_split
 
-    def fit(self, x=None, target=None):
+    def fit(self, x=None, target=None, mode=None):
         """
         Builds up the tree.
 
@@ -212,6 +207,7 @@ class Tree(ABC):
 
         :param x: Training dataset.
         :param target: Target dataset.
+        :param mode: If user want's to choose type of nodes used. For example for pruning.
         :return: Returns nothing.
         """
 
@@ -220,7 +216,7 @@ class Tree(ABC):
             queue = deque([(False, dataset, None)])
             depth = 0
             while queue:
-                # for every node on current level
+                # for every root_node on current level
                 # print(30*"#")
                 for _ in range(len(queue)):
                     # if depth == 3:
@@ -236,24 +232,22 @@ class Tree(ABC):
                         # unpacking the data
                         dataset_left = optimal_split["dataset_left"]
                         dataset_right = optimal_split["dataset_right"]
-                        # print("left", dataset_left.shape)
-                        # print("right", dataset_right.shape)
                         feature_index = optimal_split["feature_index"]
                         threshold = optimal_split["threshold"]
                         split_score = optimal_split["split_score"]
                         # if this is classification tree, we have different condition
-                        # for creating leaf rather than decision node
+                        # for creating leaf rather than decision root_node
                         if isinstance(self, ClassificationTree):
                             is_final = optimal_split["is_final"]
                             condition = split_score > 0 or (split_score == 0 and not is_final)
                         else:
                             condition = True
 
-                        if condition:  # decision node
+                        if condition:  # decision root_node
                             current_node = self.node_type(feature_index, threshold,
                                                           split_score=split_score,
                                                           parent=current_parent)
-                        else:  # leaf, only used in classification tree if node is pure
+                        else:  # leaf, only used in classification tree if root_node is pure
                             current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
                                                           leaf_eval_score=self.eval_func_leaf(current_dataset),
                                                           size=len(current_dataset))
@@ -267,7 +261,7 @@ class Tree(ABC):
                                                       size=len(current_dataset))
                     # if this is not root
                     if not (not is_left and current_parent is None):
-                        if is_left:  # we assign newly created node to be left child of parent
+                        if is_left:  # we assign newly created root_node to be left child of parent
                             current_parent.left = current_node
                         else:
                             current_parent.right = current_node
@@ -311,6 +305,12 @@ class Tree(ABC):
         if not self.dataset:
             self.dataset = x
         self.dataset["target"] = target
+        if mode == "prune":
+            self.node_type = PruningDecisionNode
+            self.leaf_type = PruningLeaf
+        elif mode == "vis":
+            self.node_type = VisDecisionNode
+            self.leaf_type = VisLeaf
         self.root = build_tree_iterative(self.dataset.to_numpy())
 
     def predict(self, x):
@@ -325,7 +325,7 @@ class Tree(ABC):
             Recursive function for data prediction.
 
             :param sample: Vector with data to predict.
-            :param node: Current node.
+            :param node: Current root_node.
             :return: Prediction.
             """
             if node is None:
@@ -344,11 +344,90 @@ class Tree(ABC):
         predictions = [make_prediction(sample) for sample in test]
         return predictions
 
-    def print_tree(self, x=None, target=None, indent="-", target_names=None):
+    def get_all_pruned_trees(self):
+        self.node_type = PruningDecisionNode
+        self.leaf_type = PruningLeaf
+        curr_root = self.root
+        # leaf_sum_score, leaf_amount, tree
+        variants = [[None, None, self]]
+        # while root is not leaf
+        while not isinstance(curr_root, Leaf):
+            # we take lastly added tree and copy it
+            curr_tree = copy.deepcopy(variants[-1][2])
+            curr_root = curr_tree.root
+            # is_left, current_node, corresponding dataset
+            stack = [(None, curr_root, self.dataset)]
+            while stack:
+                is_left, curr, current_dataset = stack.pop()
+                # if left child is not a leaf
+                if not isinstance(curr.left, Leaf):
+                    # we get it's corresponding dataset
+                    left_dataset = current_dataset.loc[current_dataset.iloc[:, curr.feature_index] <= curr.threshold]
+                    # we push to the stack to traverse further
+                    stack.append((True, curr.left, left_dataset))
+                if not isinstance(curr.right, Leaf):
+                    right_dataset = current_dataset.loc[current_dataset.iloc[:, curr.feature_index] > curr.threshold]
+                    stack.append((False, curr.right, right_dataset))
+                # if both children are leaves
+                if isinstance(curr.left, Leaf) and isinstance(curr.right, Leaf):
+                    # we transform dataset to np.array
+                    current_dataset = current_dataset.to_numpy()
+                    new_leaf = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
+                                              leaf_eval_score=self.eval_func_leaf(current_dataset))
+                    # if this is root
+                    if is_left is None:
+                        curr_root = new_leaf
+                    # if it was left child
+                    elif is_left:
+                        curr.parent.left = new_leaf
+                    else:
+                        curr.parent.right = new_leaf
+                    # we found candidate for leaf so we stop searching
+                    break
+            new_tree = self.__class__(dataset=self.dataset)
+            new_tree.root = curr_root
+            variants.append([None, None, new_tree])
+        # the last variant of pruned trees is always a leaf so we don't have to do calculations
+        variants[-1][0] = variants[-1][2].root.score
+        variants[-1][1] = 1
+        for variant in variants[:-1]:
+            tree_variant = variant[2]
+            stack = [tree_variant.root]
+            sum_score = 0
+            leaf_amount = 0
+            while stack:
+                curr = stack.pop()
+                for node in [curr.left, curr.right]:
+                    if isinstance(node, PruningLeaf):
+                        sum_score += node.score
+                        leaf_amount += 1
+                    else:
+                        stack.append(node)
+            variant[0] = sum_score
+            variant[1] = leaf_amount
+        variants = np.c_[np.full(len(variants), None), np.zeros(len(variants)), np.array(variants)]
+
+        alpha = 0
+        while variants[len(variants) - 1, 0] is None:
+            variants[:, 1] = variants[:, 2] + alpha * variants[:, 3]
+            min_cost_index = np.where(variants[:, 1] == min(variants[:, 1]))[0][0]
+            if variants[min_cost_index, 0] is None:
+                variants[min_cost_index, 0] = alpha
+            alpha += 1
+        valid_alpha = np.where(variants[:, 0] != None)[0]
+        variants = variants[valid_alpha, :]
+        return variants
+
+    def prune(self):
+        initial_variants = self.get_all_pruned_trees()
+        print(initial_variants)
+
+    def print_tree(self, root_node=None, x=None, target=None, indent="-", target_names=None):
         """
         Prints out the tree structure.
         Have to create tree with specific Nodes to see size and split_score.
 
+        :param root_node: Root node of a tree to traverse.
         :param x: Train data for fit function.
         :param target: Target data for fit function.
         :param indent: Symbol used to make indents.
@@ -359,15 +438,17 @@ class Tree(ABC):
             """
             Recursive function for creating string representation of the tree.
 
-            :param node: Current worked on node.
-            :param multi: Amount of indents required to represent this node.
+            :param node: Current worked on root_node.
+            :param multi: Amount of indents required to represent this root_node.
             :return: Returns nothing.
             """
             if node is None:
                 node = self.root
             if isinstance(node, VisLeaf):
                 print(f"class: {target_names[int(node.value)] if target_names else node.value}, size: {node.size}")
-            if isinstance(node, Leaf):
+            elif isinstance(node, PruningLeaf):
+                print(f"class: {target_names[int(node.value)] if target_names else node.value}, score: {node.score}")
+            elif isinstance(node, Leaf):
                 print(f"class: {target_names[int(node.value)] if target_names else node.value}")
             else:
                 if isinstance(node, VisDecisionNode):
@@ -383,7 +464,7 @@ class Tree(ABC):
             self.node_type = VisDecisionNode
             self.leaf_type = VisLeaf
             self.fit(x, target)
-        return _print_tree()
+        return _print_tree(root_node)
 
 
 class ClassificationTree(Tree):
