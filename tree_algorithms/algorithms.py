@@ -5,6 +5,8 @@ import copy
 import numpy as np
 import pandas as pd
 
+from functions import cross_validate
+
 
 class Node(ABC):
     pass
@@ -344,7 +346,14 @@ class Tree(ABC):
         predictions = [make_prediction(sample) for sample in test]
         return predictions
 
-    def get_all_pruned_trees(self):
+    def cost_complexity_pruning(self):
+        """
+        cost complexity pruning algorithm.
+
+        Pretty much works terribly.
+
+        :return: Pruned trees with alphas with minimal rss
+        """
         self.node_type = PruningDecisionNode
         self.leaf_type = PruningLeaf
         curr_root = self.root
@@ -416,11 +425,33 @@ class Tree(ABC):
             alpha += 1
         valid_alpha = np.where(variants[:, 0] != None)[0]
         variants = variants[valid_alpha, :]
-        return variants
+        return variants[:, [0, 4]]
 
     def prune(self):
-        initial_variants = self.get_all_pruned_trees()
-        print(initial_variants)
+        """
+        In theory should return best pruned tree.
+
+        In reality works pretty badly.
+
+        :return: Pruned tree
+        """
+        initial_variants = self.cost_complexity_pruning()
+        models = cross_validate(self.__class__, full_dataset=self.dataset, mode="prune",
+                                model_type="regression", min_sample_split=self.min_sample_split)
+        alphas = []
+        for el in models:
+            test_data, model = el
+            variants = model.cost_complexity_pruning()
+            rss_scores = [m.prediction_score(m.predict(test_data), test_data) for m in variants[:, 1]]
+            min_rss_index = np.argmin(rss_scores)
+            alphas.append(variants[min_rss_index, 0])
+        avg_alpha = sum(alphas)/len(alphas)
+        initial_alphas = initial_variants[:, 0]
+        final_model = None
+        for i in range(len(initial_alphas)-1):
+            if initial_alphas[i] < avg_alpha < initial_alphas[i+1]:
+                final_model = i
+        return initial_variants[final_model, :][1]
 
     def print_tree(self, root_node=None, x=None, target=None, indent="-", target_names=None):
         """
@@ -592,19 +623,23 @@ class RegressionTree(Tree):
         return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
 
     @staticmethod
-    def prediction_score(predictions, target):
+    def prediction_score(predictions, target, mode="mse"):
         """
         Calculates mse of prediction.
 
         :param predictions: np.array of model predictions.
         :param target: Dataframe with target data.
+        :param mode:
         :return: Float mse score
         """
         vis_df = pd.DataFrame()
         vis_df["predicted"] = predictions
         vis_df["actual"] = target.iloc[:, -1].to_numpy()
-        mse_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
-        return mse_score_final
+        if mode == "mse":
+            mse_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
+            return mse_score_final
+        elif mode == "rss":
+            return sum((vis_df["actual"] - vis_df["predicted"]) ** 2)
 
     @staticmethod
     def get_avg_value(dataset):
