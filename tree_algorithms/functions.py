@@ -39,19 +39,19 @@ def make_test_data(train_df, target_df, n):
     return new_train_df, new_target_df, test_df
 
 
-def cross_validate(model, k=10, mode="best", model_type="regression", min_sample_split=2,
+def cross_validate(model, k=10, mode=None, model_type="regression", min_sample_split=2,
                    train_df=None, target_df=None, full_dataset=None):
     """
     Cross validates data to pick the best model.
 
     :param model: Model used.
     :param k: validate data size.
-    :param mode:
-    :param model_type:
-    :param min_sample_split:
+    :param mode: Specifies cross_validation output type.
+    :param model_type: Specifies whether cross-validation is used on regression.
+    :param min_sample_split: Parameter for creating model object.
     :param train_df: Training dataset.
     :param target_df: Target dataset.
-    :param full_dataset:
+    :param full_dataset: Dataset with merged training and target dataset.
     :return: Returns best model object.
     """
     if full_dataset is None:
@@ -66,11 +66,14 @@ def cross_validate(model, k=10, mode="best", model_type="regression", min_sample
         validate_data = dataset.iloc[validate_data_indexes]
         new_dataset = dataset.drop(validate_data_indexes, axis=0)
         train_df, target_df = new_dataset.iloc[:, :-1], new_dataset.iloc[:, -1]
-        m.fit(train_df, target_df, mode=mode)
+        if mode is not None:
+            m.fit(train_df, target_df, mode=mode)
+        else:
+            m.fit(train_df, target_df)
         predictions = m.predict(validate_data)
         if mode == "best":
             models.append((m.prediction_score(predictions, validate_data), m))
-        elif mode == "prune":
+        else:
             models.append((validate_data, m))
 
     if mode == "best":
@@ -81,5 +84,5 @@ def cross_validate(model, k=10, mode="best", model_type="regression", min_sample
             max_prediction_percentage = max(models, key=lambda x: x[0])
             best_model = max_prediction_percentage
         return best_model[1]
-    elif mode == "prune":
+    else:
         return models

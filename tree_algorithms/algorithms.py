@@ -177,12 +177,15 @@ class Tree(ABC):
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
         :param eval_func_split: Function used to evaluate the split.
+        :param k: Random forest parameter
         :return: Dictionary with information about best split: feature_index, threshold,
          left_dataset, right_dataset, split_score, is_final(is it the last split that needs to be done).
         """
         best_score = float("inf")
         best_split = None
-        for feature_index in range(feature_range):
+        if isinstance(feature_range, int):
+            feature_range = range(feature_range)
+        for feature_index in feature_range:
             thresholds = self.generate_thresholds(np.unique(sorted(dataset[:, feature_index])))
             for threshold in thresholds:
                 dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
@@ -201,7 +204,7 @@ class Tree(ABC):
                     return best_split
         return best_split
 
-    def fit(self, x=None, target=None, mode=None):
+    def fit(self, x=None, target=None, mode=None, k_parameter=None):
         """
         Builds up the tree.
 
@@ -219,17 +222,22 @@ class Tree(ABC):
             depth = 0
             while queue:
                 # for every root_node on current level
-                # print(30*"#")
                 for _ in range(len(queue)):
-                    # if depth == 3:
-                    #     queue = False
                     is_left, current_dataset, current_parent = queue.popleft()
-                    # print(current_dataset.shape)
                     sample_amount, feature_amount = current_dataset.shape
+                    if k_parameter:
+                        possible_index = np.arange(feature_amount-1)
+                        random_features = np.random.choice(possible_index, k_parameter, replace=False)
+                        # condition to check whether all rows are the same.
+                        cond = (current_dataset[:, random_features] == current_dataset[:, random_features][0]).all()
+                        feature_range = random_features
+                    else:
+                        cond = False
+                        feature_range = feature_amount - 1
                     # if we can we proceed to split the data
-                    if sample_amount >= self.min_sample_split and depth <= self.max_depth:
+                    if sample_amount >= self.min_sample_split and depth <= self.max_depth and not cond:
                         # splitting
-                        optimal_split = self.get_optimal_split(current_dataset, feature_amount - 1,
+                        optimal_split = self.get_optimal_split(current_dataset, feature_range,
                                                                self.eval_func_split)
                         # unpacking the data
                         dataset_left = optimal_split["dataset_left"]
@@ -276,6 +284,8 @@ class Tree(ABC):
             """
             Recursive function for building tree.
 
+            Not updated working for random forest.
+
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
             :param depth: Current depth of this instance.
             :return: DecisionNode if more splits will be required of Leaf object if no more split will be required.
@@ -304,9 +314,9 @@ class Tree(ABC):
             return self.leaf_type(self.get_leaf_prediction_value(dataset),
                                   leaf_eval_score=self.eval_func_leaf(dataset), size=len(dataset))
 
-        if not self.dataset:
+        if self.dataset is None:
             self.dataset = x
-        self.dataset["target"] = target
+            self.dataset["target"] = target
         if mode == "prune":
             self.node_type = PruningDecisionNode
             self.leaf_type = PruningLeaf
@@ -314,6 +324,28 @@ class Tree(ABC):
             self.node_type = VisDecisionNode
             self.leaf_type = VisLeaf
         self.root = build_tree_iterative(self.dataset.to_numpy())
+        # self.print_tree(root_node=self.root)
+        # print(30*"#")
+
+    def make_prediction(self, sample, node=None):
+        """
+        Recursive function for data prediction.
+
+        :param sample: Vector with data to predict.
+        :param node: Current root_node.
+        :return: Prediction.
+        """
+        if node is None:
+            node = self.root
+        if isinstance(node, Leaf):
+            return node.value
+        else:
+            feature_index = node.feature_index
+            threshold = node.threshold
+            if sample[feature_index] <= threshold:
+                return self.make_prediction(sample, node.left)
+            else:
+                return self.make_prediction(sample, node.right)
 
     def predict(self, x):
         """
@@ -322,28 +354,8 @@ class Tree(ABC):
         :param x: Dataset with data to predict.
         :return: Returns predictions.
         """
-        def make_prediction(sample, node=None):
-            """
-            Recursive function for data prediction.
-
-            :param sample: Vector with data to predict.
-            :param node: Current root_node.
-            :return: Prediction.
-            """
-            if node is None:
-                node = self.root
-            if isinstance(node, Leaf):
-                return node.value
-            else:
-                feature_index = node.feature_index
-                threshold = node.threshold
-                if sample[feature_index] <= threshold:
-                    return make_prediction(sample, node.left)
-                else:
-                    return make_prediction(sample, node.right)
-
         test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
-        predictions = [make_prediction(sample) for sample in test]
+        predictions = [self.make_prediction(sample) for sample in test]
         return predictions
 
     def cost_complexity_pruning(self):
@@ -399,6 +411,8 @@ class Tree(ABC):
         # the last variant of pruned trees is always a leaf so we don't have to do calculations
         variants[-1][0] = variants[-1][2].root.score
         variants[-1][1] = 1
+
+        # dfs algorithm to calculate sum of rss of all leaves and amount of leaves
         for variant in variants[:-1]:
             tree_variant = variant[2]
             stack = [tree_variant.root]
@@ -416,6 +430,8 @@ class Tree(ABC):
             variant[1] = leaf_amount
         variants = np.c_[np.full(len(variants), None), np.zeros(len(variants)), np.array(variants)]
 
+        # algorithm to calculate optimal alpha for each tree.
+        # trees without alpha are removed, because they are pretty bad i guess.
         alpha = 0
         while variants[len(variants) - 1, 0] is None:
             variants[:, 1] = variants[:, 2] + alpha * variants[:, 3]
@@ -429,9 +445,10 @@ class Tree(ABC):
 
     def prune(self):
         """
-        In theory should return best pruned tree.
+        In theory should return the best pruned tree.
 
-        In reality works pretty badly.
+        In reality works pretty badly. Maybe I misunderstood theory of algorithm.
+        For now it works only for regression trees.
 
         :return: Pruned tree
         """
@@ -507,7 +524,7 @@ class ClassificationTree(Tree):
         :param min_sample_split: Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
-        super().__init__(dataset, min_sample_split, max_depth)
+        super().__init__(dataset, min_sample_split=min_sample_split, max_depth=max_depth)
         self.eval_func_split = self.gini_index
         self.get_leaf_prediction_value = self.get_most_common_value
         self.eval_func_leaf = self.get_amount_of_most_common_value
@@ -588,7 +605,7 @@ class RegressionTree(Tree):
         :param min_sample_split: Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
-        super().__init__(dataset, min_sample_split, max_depth)
+        super().__init__(dataset, min_sample_split=min_sample_split, max_depth=max_depth)
 
         self.eval_func_split = self.rss_score
         self.get_leaf_prediction_value = self.get_avg_value
@@ -653,3 +670,71 @@ class RegressionTree(Tree):
             return dataset[:, -1].mean()
         else:
             return dataset[:, -1][0]
+
+
+class RandomForest(Tree):
+    def __init__(self, dataset=None, tree_type="classification", min_sample_split=2, max_depth=5):
+        super().__init__(dataset)
+        if tree_type == "classification":
+            tree_type = ClassificationTree
+        elif tree_type == "regression":
+            tree_type = RegressionTree
+        self.tree_type = tree_type
+        self.trees = None
+        self.min_sample_split = min_sample_split
+        self.max_depth = max_depth
+
+    def bootstrap_dataset(self, n, m, sample_amount):
+        """
+        Function for creating bootstrapped datasets.
+
+        :param n: Amount of new datasets.
+        :param m: Amount of samples in each dataset.
+        :param sample_amount: Amount of samples in base dataset.
+        :return: List of newly created bootstrapped datasets.
+        """
+        if m is None:
+            m = sample_amount
+        bt_datasets = []
+        for _ in range(n):
+            new_sample_indexes = np.random.random_integers(0, sample_amount-1, m)
+            bt_datasets.append(self.dataset.loc[new_sample_indexes])
+        return bt_datasets
+
+    def build_trees(self, n, m=None, min_sample_split=None, max_depth=None):
+        if min_sample_split is not None:
+            self.min_sample_split = min_sample_split
+        if max_depth is not None:
+            self.max_depth = max_depth
+
+        trees = []
+        sample_amount, feature_amount = self.dataset.shape
+        k_parameter = int(np.sqrt(feature_amount-1))
+        for dataset in self.bootstrap_dataset(n, m, sample_amount):
+            new_tree = self.tree_type(dataset, min_sample_split=self.min_sample_split, max_depth=self.max_depth)
+            new_tree.fit(k_parameter=k_parameter)
+            trees.append(new_tree)
+        self.trees = trees
+
+    def predict(self, x, ):
+        test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
+        predictions = []
+        for i in range(len(test)):
+            sample, sample_target = test[i, :], target[i]
+            variants = []
+            for tree in self.trees:
+                prediction_variant = tree.make_prediction(sample)
+                variants.append(prediction_variant)
+            if self.tree_type is ClassificationTree:
+                count = Counter(variants)
+                most_common_value = max(count, key=lambda k: count[k])
+                predictions.append((most_common_value, sample_target))
+                # print(variants)
+                # print(count)
+                # print(most_common_value)
+                # print(sample_target)
+            else:
+                predictions.append((sum(variants)/len(variants), sample_target))
+        print(predictions)
+        p = [i for i in predictions if i[0] == i[1]]
+        print(len(p)/len(predictions))
