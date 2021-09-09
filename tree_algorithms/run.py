@@ -11,7 +11,7 @@ import seaborn as sns
 from time import time
 
 if __name__ == '__main__':
-    iris = load_boston()
+    iris = load_iris()
     train_df = pd.DataFrame(data=iris["data"], columns=iris["feature_names"])
     target_df = pd.DataFrame(data=iris["target"], columns=["target"])
 
@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # print(test_df.shape)
     dataset = pd.concat([train_df, target_df], axis=1)
     s = time()
-    rf = RandomForest(dataset, tree_type="regression", min_sample_split=2, max_depth=100)
+    rf = RandomForest(dataset, tree_type="classification", min_sample_split=2, max_depth=100)
     # rf.build_trees(100)
     rf.build_forest(100)
     e = time()

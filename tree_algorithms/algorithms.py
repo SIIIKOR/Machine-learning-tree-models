@@ -17,10 +17,7 @@ class DecisionNode(Node):
         """
         Decision root_node.
 
-        if feature value <= threshold:
-            go to the left root_node
-        else:
-            go to the right root_node
+        Values of feature which are smaller than some threshold go to the left. Greater go to the right.
 
         :param feature_index: Index of feature by which decision will be made.
         :param threshold: Value by which decision will be made.
@@ -53,7 +50,7 @@ class PruningDecisionNode(DecisionNode):
         """
         Decision Node that will be used during pruning.
 
-        It has additional parameter parent, which is pointing at the parent of this root_node
+        It has additional parameter parent, which is pointing at the parent of this node.
 
         :param feature_index: Index of feature by which decision will be made.
         :param threshold: Value by which decision will be made.
@@ -68,10 +65,10 @@ class PruningDecisionNode(DecisionNode):
 class Leaf(Node):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf root_node.
+        Leaf node.
 
         At the end, every sample lands in one.
-        It tells what it have been classified as.
+        It tells what given sample have been classified as.
 
         :param value: Prediction output.
         """
@@ -81,7 +78,7 @@ class Leaf(Node):
 class VisLeaf(Leaf):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf root_node used for visualisation.
+        Leaf node used for visualisation.
 
         :param value: Prediction output.
         :param size: Amount of samples.
@@ -93,7 +90,7 @@ class VisLeaf(Leaf):
 class PruningLeaf(Leaf):
     def __init__(self, value=None, **kwargs):
         """
-        Leaf root_node used for pruning tree.
+        Leaf node used in pruning tree.
 
         It contains score which will be used to replace decision nodes with leaf.
 
@@ -174,10 +171,12 @@ class Tree(ABC):
         """
         Returns the best split for the given dataset.
 
+        Uses evaluation function which is different for classification and regression tree.
+        But classification can have multiple evaluation functions.
+
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
         :param eval_func_split: Function used to evaluate the split.
-        :param k: Random forest parameter
         :return: Dictionary with information about best split: feature_index, threshold,
          left_dataset, right_dataset, split_score, is_final(is it the last split that needs to be done).
         """
@@ -206,17 +205,26 @@ class Tree(ABC):
 
     def fit(self, x=None, target=None, mode=None, k_parameter=None):
         """
-        Builds up the tree.
-
-        Iterative algorithm based on bfs.
+        Builds up the trees.
 
         :param x: Training dataset.
         :param target: Target dataset.
         :param mode: If user want's to choose type of nodes used. For example for pruning.
+        :param k_parameter: Parameter for random forest.
+         Specifies amount of features to be randomly picked at each step.
         :return: Returns nothing.
         """
 
         def build_tree_iterative(dataset):
+            """
+            Iterative tree building algorithm basing on bfs.
+
+            Currently the the only one working for this project.
+            Recursive variant hasn't been updated for random forest and bootstrapping.
+
+            :param dataset: Dataset used to build tree.
+            :return: Root node to which rest of the tree is attached.
+            """
             # left_child, current dataset, parent
             queue = deque([(False, dataset, None)])
             depth = 0
@@ -228,7 +236,7 @@ class Tree(ABC):
                     if k_parameter:
                         possible_index = np.arange(feature_amount-1)
                         random_features = np.random.choice(possible_index, k_parameter, replace=False)
-                        # condition to check whether all rows are the same.
+                        # condition to check whether all rows are the same. This can happen in bootstrapped dataset.
                         cond = (current_dataset[:, random_features] == current_dataset[:, random_features][0]).all()
                         feature_range = random_features
                     else:
@@ -284,7 +292,7 @@ class Tree(ABC):
             """
             Recursive function for building tree.
 
-            Not updated working for random forest.
+            Not updated for random forest.
 
             :param dataset: Dataset with merged train and target columns. often smaller size than original.
             :param depth: Current depth of this instance.
@@ -327,7 +335,7 @@ class Tree(ABC):
 
     def make_prediction(self, sample, node=None):
         """
-        Recursive function for data prediction.
+        Recursive function for traversing the tree and thus data prediction.
 
         :param sample: Vector with data to predict.
         :param node: Current root_node.
@@ -360,7 +368,8 @@ class Tree(ABC):
         """
         cost complexity pruning algorithm.
 
-        Pretty much works terribly.
+        Pretty much works terribly. Maybe i did something wrong in the implementation.
+        It's surely makes predictions worse so maybe over-fitting is less noticeable.
 
         :return: Pruned trees with alphas with minimal rss
         """
@@ -443,10 +452,7 @@ class Tree(ABC):
 
     def prune(self):
         """
-        In theory should return the best pruned tree.
-
-        In reality works pretty badly. Maybe I misunderstood theory of algorithm.
-        For now it works only for regression trees.
+        In theory should return tree pruned in the best way.
 
         :return: Pruned tree
         """
@@ -644,7 +650,7 @@ class RegressionTree(Tree):
 
         :param predictions: np.array of model predictions.
         :param target: Dataframe with target data.
-        :param mode:
+        :param kwargs: Mode - parameter used to chose type of output: rss or mse.
         :return: Float mse score
         """
         vis_df = pd.DataFrame()
@@ -672,6 +678,16 @@ class RegressionTree(Tree):
 
 class RandomForest(Tree):
     def __init__(self, dataset=None, tree_type="classification", min_sample_split=2, max_depth=5):
+        """
+        Random forest algorithm.
+
+        Based on bootstrapping and randomly picking features at each step at tree building.
+
+        :param dataset: Dataset used to build forest.
+        :param tree_type: Classification or regression.
+        :param min_sample_split: Minimal samples required to split dataset.
+        :param max_depth: Maximal depth of the tree.
+        """
         super().__init__(dataset)
         if tree_type == "classification":
             tree_type = ClassificationTree
@@ -706,6 +722,14 @@ class RandomForest(Tree):
     def bootstrap_dataset_generator(n, m, sample_amount):
         """
         Function for creating bootstrapped datasets.
+
+        It's a generator so memory efficiency is much better.
+        I'm not sure whether generator won't change randomly
+        chosen feature indexes during multiple iterations while
+        searching for the best k_parameter
+
+        This problem might be solved by setting random seed at the beginning
+        of forest building algorithm.
 
         :param n: Amount of new datasets.
         :param m: Amount of samples in each dataset.
@@ -750,18 +774,20 @@ class RandomForest(Tree):
 
     def build_forest(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
         sample_amount, feature_amount = self.dataset.shape
+        # setting seed to prevent mistakes at picking best k. I'm not sure if it is a problem or if this is a solution.
+        # np.random.default_rng()
         bootstrapped_datasets = self.bootstrap_dataset(n, m, sample_amount)
         # uncomment to use generator for creating bootstrapped dataset but it may be wrong for picking best k
         # bootstrapped_datasets = None
         starting_k_parameter = int(np.sqrt(feature_amount-1))
-        if diff is None:
+        if diff is None:  # creating boundaries of k to test.
             diff = starting_k_parameter
         low_boundary = starting_k_parameter-diff if starting_k_parameter-diff >= 1 else 1
         high_boundary = starting_k_parameter+diff+1 if starting_k_parameter+diff+1 < feature_amount \
             else feature_amount-1
 
         best_rf, best_rf_accuracy_estimate = None, None
-        for k in range(low_boundary, high_boundary):
+        for k in range(low_boundary, high_boundary):  # creating forests with different k parameters.
             accuracy_estimate, trees = self.build_trees(n, bootstrapped_datasets, sample_amount, k,
                                                         min_sample_split, max_depth, m)
 
@@ -776,8 +802,16 @@ class RandomForest(Tree):
                 best_rf_accuracy_estimate = accuracy_estimate
                 best_rf = trees
         self.trees = best_rf
+        print(best_rf_accuracy_estimate)
 
-    def predict(self, x, ):
+    def predict(self, x):
+        """
+        Function used to predict data in random forest.
+
+        The final prediction is the most occurring one for classification or the average one for regression.
+        :param x: Dataset with data to predict from.
+        :return: Predictions.
+        """
         test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
         predictions = []
         for i in range(len(test)):
@@ -790,12 +824,6 @@ class RandomForest(Tree):
                 count = Counter(variants)
                 most_common_value = max(count, key=lambda k: count[k])
                 predictions.append((most_common_value, sample_target))
-                # print(variants)
-                # print(count)
-                # print(most_common_value)
-                # print(sample_target)
             else:
                 predictions.append((sum(variants)/len(variants), sample_target))
-        print(predictions)
-        p = [i for i in predictions if i[0] == i[1]]
-        print(len(p)/len(predictions))
+        return predictions
