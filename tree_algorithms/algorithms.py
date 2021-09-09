@@ -235,7 +235,7 @@ class Tree(ABC):
                         cond = False
                         feature_range = feature_amount - 1
                     # if we can we proceed to split the data
-                    if sample_amount >= self.min_sample_split and depth <= self.max_depth and not cond:
+                    if sample_amount >= self.min_sample_split and depth < self.max_depth and not cond:
                         # splitting
                         optimal_split = self.get_optimal_split(current_dataset, feature_range,
                                                                self.eval_func_split)
@@ -324,8 +324,6 @@ class Tree(ABC):
             self.node_type = VisDecisionNode
             self.leaf_type = VisLeaf
         self.root = build_tree_iterative(self.dataset.to_numpy())
-        # self.print_tree(root_node=self.root)
-        # print(30*"#")
 
     def make_prediction(self, sample, node=None):
         """
@@ -354,7 +352,7 @@ class Tree(ABC):
         :param x: Dataset with data to predict.
         :return: Returns predictions.
         """
-        test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
+        test = x.iloc[:, :-1].to_numpy()
         predictions = [self.make_prediction(sample) for sample in test]
         return predictions
 
@@ -584,7 +582,7 @@ class ClassificationTree(Tree):
         return {"score": weighted_gini, "is_final": is_final}
 
     @staticmethod
-    def prediction_score(predictions, target):
+    def prediction_score(predictions, target, **kwargs):
         """
         Function for calculating Success rate of prediction.
 
@@ -640,7 +638,7 @@ class RegressionTree(Tree):
         return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
 
     @staticmethod
-    def prediction_score(predictions, target, mode="mse"):
+    def prediction_score(predictions, target, **kwargs):
         """
         Calculates mse of prediction.
 
@@ -652,10 +650,10 @@ class RegressionTree(Tree):
         vis_df = pd.DataFrame()
         vis_df["predicted"] = predictions
         vis_df["actual"] = target.iloc[:, -1].to_numpy()
-        if mode == "mse":
+        if kwargs["mode"] == "mse":
             mse_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
             return mse_score_final
-        elif mode == "rss":
+        elif kwargs["mode"] == "rss":
             return sum((vis_df["actual"] - vis_df["predicted"]) ** 2)
 
     @staticmethod
@@ -684,7 +682,8 @@ class RandomForest(Tree):
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
 
-    def bootstrap_dataset(self, n, m, sample_amount):
+    @staticmethod
+    def bootstrap_dataset(n, m, sample_amount):
         """
         Function for creating bootstrapped datasets.
 
@@ -695,26 +694,88 @@ class RandomForest(Tree):
         """
         if m is None:
             m = sample_amount
+        all_indexes = set(np.arange(sample_amount))
         bt_datasets = []
         for _ in range(n):
-            new_sample_indexes = np.random.random_integers(0, sample_amount-1, m)
-            bt_datasets.append(self.dataset.loc[new_sample_indexes])
+            bootstrapped_indexes = np.random.random_integers(0, sample_amount-1, m)
+            out_of_bag_indexes = np.fromiter(all_indexes - Counter(bootstrapped_indexes).keys(), int)
+            bt_datasets.append((bootstrapped_indexes, out_of_bag_indexes))
         return bt_datasets
 
-    def build_trees(self, n, m=None, min_sample_split=None, max_depth=None):
+    @staticmethod
+    def bootstrap_dataset_generator(n, m, sample_amount):
+        """
+        Function for creating bootstrapped datasets.
+
+        :param n: Amount of new datasets.
+        :param m: Amount of samples in each dataset.
+        :param sample_amount: Amount of samples in base dataset.
+        :return: List of newly created bootstrapped datasets.
+        """
+        if m is None:
+            m = sample_amount
+        all_indexes = set(np.arange(sample_amount))
+        for _ in range(n):
+            bootstrapped_indexes = np.random.random_integers(0, sample_amount - 1, m)
+            out_of_bag_indexes = np.fromiter(all_indexes - Counter(bootstrapped_indexes).keys(), int)
+            yield bootstrapped_indexes, out_of_bag_indexes
+
+    def build_trees(self, n, bt_dataset=None, sample_amount=None, k_parameter=None, min_sample_split=None,
+                    max_depth=None, m=None):
         if min_sample_split is not None:
             self.min_sample_split = min_sample_split
         if max_depth is not None:
             self.max_depth = max_depth
+        if bt_dataset is None:
+            bt_dataset = self.bootstrap_dataset_generator(n, m, sample_amount)
+        if k_parameter is None:
+            sample_amount, feature_amount = self.dataset.shape
+            k_parameter = int(np.sqrt(feature_amount))
 
         trees = []
-        sample_amount, feature_amount = self.dataset.shape
-        k_parameter = int(np.sqrt(feature_amount-1))
-        for dataset in self.bootstrap_dataset(n, m, sample_amount):
-            new_tree = self.tree_type(dataset, min_sample_split=self.min_sample_split, max_depth=self.max_depth)
+        oob_predictions_scores = []
+        for el in bt_dataset:
+            bootstrapped_index, out_of_bag_indexes = el
+            new_tree = self.tree_type(self.dataset.loc[bootstrapped_index],
+                                      min_sample_split=self.min_sample_split,
+                                      max_depth=self.max_depth)
             new_tree.fit(k_parameter=k_parameter)
+            oob_dataset = self.dataset.loc[out_of_bag_indexes]
+            oob_prediction = new_tree.predict(oob_dataset)
+            score = new_tree.prediction_score(oob_prediction, oob_dataset, mode="rss")
+            oob_predictions_scores.append(score)
             trees.append(new_tree)
-        self.trees = trees
+        rf_accuracy_estimate = sum(oob_predictions_scores)/len(oob_predictions_scores)
+        return rf_accuracy_estimate, trees
+
+    def build_forest(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
+        sample_amount, feature_amount = self.dataset.shape
+        bootstrapped_datasets = self.bootstrap_dataset(n, m, sample_amount)
+        # uncomment to use generator for creating bootstrapped dataset but it may be wrong for picking best k
+        # bootstrapped_datasets = None
+        starting_k_parameter = int(np.sqrt(feature_amount-1))
+        if diff is None:
+            diff = starting_k_parameter
+        low_boundary = starting_k_parameter-diff if starting_k_parameter-diff >= 1 else 1
+        high_boundary = starting_k_parameter+diff+1 if starting_k_parameter+diff+1 < feature_amount \
+            else feature_amount-1
+
+        best_rf, best_rf_accuracy_estimate = None, None
+        for k in range(low_boundary, high_boundary):
+            accuracy_estimate, trees = self.build_trees(n, bootstrapped_datasets, sample_amount, k,
+                                                        min_sample_split, max_depth, m)
+
+            if best_rf_accuracy_estimate is None:
+                best_rf_accuracy_estimate = accuracy_estimate
+                best_rf = trees
+            if isinstance(self.tree_type, ClassificationTree):
+                cond = accuracy_estimate > best_rf_accuracy_estimate
+            else:
+                cond = accuracy_estimate < best_rf_accuracy_estimate
+            if cond:
+                best_rf_accuracy_estimate = accuracy_estimate
+                best_rf = trees
+        self.trees = best_rf
 
     def predict(self, x, ):
         test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()

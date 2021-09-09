@@ -8,19 +8,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from time import time
+
 if __name__ == '__main__':
-    iris = load_iris()
+    iris = load_boston()
     train_df = pd.DataFrame(data=iris["data"], columns=iris["feature_names"])
     target_df = pd.DataFrame(data=iris["target"], columns=["target"])
 
-    train_df, target_df, test_df = make_test_data(train_df, target_df, 120)
+    # train_df, target_df, test_df = make_test_data(train_df, target_df, 140)
     print(train_df.shape)
     print(target_df.shape)
-    print(test_df.shape)
+    # print(test_df.shape)
     dataset = pd.concat([train_df, target_df], axis=1)
-    rf = RandomForest(dataset, tree_type="classification", min_sample_split=20, max_depth=100)
-    rf.build_trees(100)
-    rf.predict(test_df)
+    s = time()
+    rf = RandomForest(dataset, tree_type="regression", min_sample_split=2, max_depth=100)
+    # rf.build_trees(100)
+    rf.build_forest(100)
+    e = time()
+    print(e-s, "seconds")
+    # rf.predict(test_df)
 
 
 
