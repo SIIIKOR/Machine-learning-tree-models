@@ -746,6 +746,20 @@ class RandomForest(Tree):
 
     def build_trees(self, n, bt_dataset=None, sample_amount=None, k_parameter=None, min_sample_split=None,
                     max_depth=None, m=None):
+        """
+        Builds random forest for given k parameter.
+
+
+        :param n: Amount of trees.
+        :param bt_dataset: list of tuples containing array of
+         sample indexes for bootstrap dataset and it's corresponding out of bag samples
+        :param sample_amount: Amount of samples in dataset.
+        :param k_parameter: Amount of features which will be randomly selected at each step while building given tree.
+        :param min_sample_split: Minimal samples required to split dataset.
+        :param max_depth: Maximal depth of the tree.
+        :param m: Optional parameter, you can limit sample amount per bootstrapped dataset
+        :return: float accuracy_estimate and list of trees
+        """
         if min_sample_split is not None:
             self.min_sample_split = min_sample_split
         if max_depth is not None:
@@ -773,6 +787,17 @@ class RandomForest(Tree):
         return rf_accuracy_estimate, trees
 
     def build_forest(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
+        """
+        Builds random forest with best k parameter.
+
+
+        :param n: Amount of trees
+        :param diff: Specifies amount of k parameters to check.
+        :param min_sample_split: Minimal samples required to split dataset.
+        :param max_depth: Maximal depth of the tree.
+        :param m: Optional parameter, you can limit sample amount per bootstrapped dataset
+        :return: Returns nothing.
+        """
         sample_amount, feature_amount = self.dataset.shape
         # setting seed to prevent mistakes at picking best k. I'm not sure if it is a problem or if this is a solution.
         # np.random.default_rng()
