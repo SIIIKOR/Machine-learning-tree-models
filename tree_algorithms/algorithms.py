@@ -182,10 +182,14 @@ class Tree(ABC):
         """
         best_score = float("inf")
         best_split = None
+        # print(30*"#")
+        # print(dataset)
         if isinstance(feature_range, int):
             feature_range = range(feature_range)
         for feature_index in feature_range:
             thresholds = self.generate_thresholds(np.unique(sorted(dataset[:, feature_index])))
+            thresholds = list(thresholds)
+            # print(thresholds)
             for threshold in thresholds:
                 dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
                 eval_output = eval_func_split(dataset_left, dataset_right, feature_index)
@@ -236,43 +240,35 @@ class Tree(ABC):
                     if k_parameter:
                         possible_index = np.arange(feature_amount-1)
                         random_features = np.random.choice(possible_index, k_parameter, replace=False)
-                        # condition to check whether all rows are the same. This can happen in bootstrapped dataset.
-                        cond = (current_dataset[:, random_features] == current_dataset[:, random_features][0]).all()
                         feature_range = random_features
                     else:
-                        cond = False
                         feature_range = feature_amount - 1
                     # if we can we proceed to split the data
-                    if sample_amount >= self.min_sample_split and depth < self.max_depth and not cond:
+                    if sample_amount >= self.min_sample_split and depth < self.max_depth:
                         # splitting
                         optimal_split = self.get_optimal_split(current_dataset, feature_range,
                                                                self.eval_func_split)
-                        # unpacking the data
-                        dataset_left = optimal_split["dataset_left"]
-                        dataset_right = optimal_split["dataset_right"]
-                        feature_index = optimal_split["feature_index"]
-                        threshold = optimal_split["threshold"]
-                        split_score = optimal_split["split_score"]
-                        # if this is classification tree, we have different condition
-                        # for creating leaf rather than decision root_node
-                        if isinstance(self, ClassificationTree):
-                            is_final = optimal_split["is_final"]
-                            condition = split_score > 0 or (split_score == 0 and not is_final)
-                        else:
+                        # if optimal split is None then we could not split the data hence we create leaf.
+                        condition = False
+                        if optimal_split is not None:  # means if we can split the data.
+                            split_score = optimal_split["split_score"]
+                            # if this is regression tree condition will always be true,
+                            # because if we can split the data we will always do so
                             condition = True
+                            # if this is classification tree, we have different condition
+                            if isinstance(self, ClassificationTree):
+                                is_final = optimal_split["is_final"]
+                                condition = split_score > 0 or (split_score == 0 and not is_final)
 
-                        if condition:  # decision root_node
-                            current_node = self.node_type(feature_index, threshold,
-                                                          split_score=split_score,
-                                                          parent=current_parent)
-                        else:  # leaf, only used in classification tree if root_node is pure
+                        if condition:  # create decision node
+                            current_node = self.node_type(optimal_split["feature_index"], optimal_split["threshold"],
+                                                          split_score=split_score, parent=current_parent)
+                            queue.append((True, optimal_split["dataset_left"], current_node))
+                            queue.append((False, optimal_split["dataset_right"], current_node))
+                        else:  # create leaf
                             current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
                                                           leaf_eval_score=self.eval_func_leaf(current_dataset),
                                                           size=len(current_dataset))
-                        # if this is not a leaf we proceed to split the data
-                        if not isinstance(current_node, Leaf):
-                            queue.append((True, dataset_left, current_node))
-                            queue.append((False, dataset_right, current_node))
                     else:  # if we are not allowed to split the data, we create leaf
                         current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
                                                       leaf_eval_score=self.eval_func_leaf(current_dataset),
@@ -749,7 +745,6 @@ class RandomForest(Tree):
         """
         Builds random forest for given k parameter.
 
-
         :param n: Amount of trees.
         :param bt_dataset: list of tuples containing array of
          sample indexes for bootstrap dataset and it's corresponding out of bag samples
@@ -804,12 +799,11 @@ class RandomForest(Tree):
         bootstrapped_datasets = self.bootstrap_dataset(n, m, sample_amount)
         # uncomment to use generator for creating bootstrapped dataset but it may be wrong for picking best k
         # bootstrapped_datasets = None
-        starting_k_parameter = int(np.sqrt(feature_amount-1))
+        init_k_para = int(np.sqrt(feature_amount-1))
         if diff is None:  # creating boundaries of k to test.
-            diff = starting_k_parameter
-        low_boundary = starting_k_parameter-diff if starting_k_parameter-diff >= 1 else 1
-        high_boundary = starting_k_parameter+diff+1 if starting_k_parameter+diff+1 < feature_amount \
-            else feature_amount-1
+            diff = init_k_para
+        low_boundary = init_k_para-diff if init_k_para-diff >= 1 else 1
+        high_boundary = init_k_para+diff+1 if init_k_para+diff+1 < feature_amount else feature_amount-1
 
         best_rf, best_rf_accuracy_estimate = None, None
         for k in range(low_boundary, high_boundary):  # creating forests with different k parameters.
