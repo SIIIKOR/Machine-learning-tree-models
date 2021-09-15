@@ -1,5 +1,5 @@
 from collections import Counter, deque
-from abc import ABC
+from abc import ABC, abstractmethod
 import copy
 
 import numpy as np
@@ -115,10 +115,6 @@ class Tree(ABC):
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
 
-        self.eval_func_split = None
-        self.get_leaf_prediction_value = None
-        self.eval_func_leaf = None
-
         self.node_type = DecisionNode
         self.leaf_type = Leaf
 
@@ -167,7 +163,7 @@ class Tree(ABC):
         dataset_right = np.array([row for row in dataset if row[feature_index] > threshold])
         return dataset_left, dataset_right
 
-    def get_optimal_split(self, dataset, feature_range, eval_func_split):
+    def get_optimal_split(self, dataset, feature_range):
         """
         Returns the best split for the given dataset.
 
@@ -176,23 +172,20 @@ class Tree(ABC):
 
         :param dataset: Dataset with merged train and target columns. often smaller size than original.
         :param feature_range: Range of training features.
-        :param eval_func_split: Function used to evaluate the split.
         :return: Dictionary with information about best split: feature_index, threshold,
          left_dataset, right_dataset, split_score, is_final(is it the last split that needs to be done).
         """
         best_score = float("inf")
         best_split = None
-        # print(30*"#")
-        # print(dataset)
         if isinstance(feature_range, int):
             feature_range = range(feature_range)
         for feature_index in feature_range:
             thresholds = self.generate_thresholds(np.unique(sorted(dataset[:, feature_index])))
             thresholds = list(thresholds)
-            # print(thresholds)
             for threshold in thresholds:
                 dataset_left, dataset_right = self.split(dataset, feature_index, threshold)
-                eval_output = eval_func_split(dataset_left, dataset_right, feature_index)
+                eval_output = self.evaluate_split(dataset_left=dataset_left, dataset_right=dataset_right,
+                                                  feature_index=feature_index)
                 score = eval_output["score"]
                 if score < best_score:
                     best_score = score
@@ -206,6 +199,16 @@ class Tree(ABC):
                 if score == 0:
                     return best_split
         return best_split
+
+    @abstractmethod
+    def evaluate_split(self, **kwargs):
+        """Function used to rate given split."""
+    @abstractmethod
+    def set_prediction(self, **kwargs):
+        """Function used to set prediction value for a leaf."""
+    @abstractmethod
+    def evaluate_leaf(self, **kwargs):
+        """Function used to rate leaf."""
 
     def fit(self, x=None, target=None, mode=None, k_parameter=None):
         """
@@ -246,8 +249,7 @@ class Tree(ABC):
                     # if we can we proceed to split the data
                     if sample_amount >= self.min_sample_split and depth < self.max_depth:
                         # splitting
-                        optimal_split = self.get_optimal_split(current_dataset, feature_range,
-                                                               self.eval_func_split)
+                        optimal_split = self.get_optimal_split(current_dataset, feature_range)
                         # if optimal split is None then we could not split the data hence we create leaf.
                         condition = False
                         if optimal_split is not None:  # means if we can split the data.
@@ -266,12 +268,12 @@ class Tree(ABC):
                             queue.append((True, optimal_split["dataset_left"], current_node))
                             queue.append((False, optimal_split["dataset_right"], current_node))
                         else:  # create leaf
-                            current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
-                                                          leaf_eval_score=self.eval_func_leaf(current_dataset),
+                            current_node = self.leaf_type(self.set_prediction(dataset=current_dataset),
+                                                          leaf_eval_score=self.evaluate_leaf(dataset=current_dataset),
                                                           size=len(current_dataset))
                     else:  # if we are not allowed to split the data, we create leaf
-                        current_node = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
-                                                      leaf_eval_score=self.eval_func_leaf(current_dataset),
+                        current_node = self.leaf_type(self.set_prediction(dataset=current_dataset),
+                                                      leaf_eval_score=self.evaluate_leaf(dataset=current_dataset),
                                                       size=len(current_dataset))
                     # if this is not root
                     if not (not is_left and current_parent is None):
@@ -296,7 +298,7 @@ class Tree(ABC):
             """
             sample_amount, feature_amount = dataset.shape
             if sample_amount >= self.min_sample_split and depth <= self.max_depth:
-                optimal_split = self.get_optimal_split(dataset, feature_amount - 1, self.eval_func_split)
+                optimal_split = self.get_optimal_split(dataset, feature_amount - 1)
                 dataset_left = optimal_split["dataset_left"]
                 dataset_right = optimal_split["dataset_right"]
                 feature_index = optimal_split["feature_index"]
@@ -315,8 +317,8 @@ class Tree(ABC):
                     return self.node_type(feature_index, threshold, left_subtree, right_subtree,
                                           split_score=split_score)
 
-            return self.leaf_type(self.get_leaf_prediction_value(dataset),
-                                  leaf_eval_score=self.eval_func_leaf(dataset), size=len(dataset))
+            return self.leaf_type(self.set_prediction(dataset),
+                                  leaf_eval_score=self.evaluate_split(dataset), size=len(dataset))
 
         if self.dataset is None:
             self.dataset = x
@@ -360,6 +362,10 @@ class Tree(ABC):
         predictions = [self.make_prediction(sample) for sample in test]
         return predictions
 
+    @abstractmethod
+    def prediction_score(self):
+        """Calculates prediction score for a given tree type."""
+
     def cost_complexity_pruning(self):
         """
         cost complexity pruning algorithm.
@@ -396,8 +402,8 @@ class Tree(ABC):
                 if isinstance(curr.left, Leaf) and isinstance(curr.right, Leaf):
                     # we transform dataset to np.array
                     current_dataset = current_dataset.to_numpy()
-                    new_leaf = self.leaf_type(self.get_leaf_prediction_value(current_dataset),
-                                              leaf_eval_score=self.eval_func_leaf(current_dataset))
+                    new_leaf = self.leaf_type(self.set_prediction(dataset=current_dataset),
+                                              leaf_eval_score=self.evaluate_leaf(dataset=current_dataset))
                     # if this is root
                     if is_left is None:
                         curr_root = new_leaf
@@ -516,53 +522,40 @@ class Tree(ABC):
 
 
 class ClassificationTree(Tree):
-    def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
-        """
-        Classification Tree - ML classification algorithm.
-
-        :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
-        :param min_sample_split: Minimal samples required to split dataset.
-        :param max_depth: Maximal depth of the tree.
-        """
-        super().__init__(dataset, min_sample_split=min_sample_split, max_depth=max_depth)
-        self.eval_func_split = self.gini_index
-        self.get_leaf_prediction_value = self.get_most_common_value
-        self.eval_func_leaf = self.get_amount_of_most_common_value
 
     @staticmethod
-    def get_most_common_value(dataset):
+    def set_prediction(**kwargs):
         """
         Function that sets prediction value for a leaf.
 
-        :param dataset: Dataset with merged train and target columns.
         :return: Most frequently occurring value in given dataset target column.
 
         """
+        dataset = kwargs["dataset"]
         count = Counter(dataset[:, -1])
         return max(count, key=lambda x: count[x])
 
     @staticmethod
-    def get_amount_of_most_common_value(dataset):
+    def evaluate_leaf(**kwargs):
         """
         Function used for leaf evaluation for potential pruning.
 
-        :param dataset: Dataset with merged train and target columns.
         :return: Amount of most commonly occurring value in target column.
         """
+        dataset = kwargs["dataset"]
         count = Counter(dataset[:, -1])
         return count[max(count, key=lambda x: count[x])]
 
     @staticmethod
-    def gini_index(*datasets):
+    def evaluate_split(**kwargs):
         """
         Calculates gini index for given datasets and decides whether it was the last split.
-
-        :param datasets: Two datasets with column containing values smaller than some threshold.
         :return: weighted gini index, information whether this split should be final.
         """
-        dataset_left, dataset_right = datasets[0], datasets[1]
         scores = []
         counts = []
+        dataset_left = kwargs["dataset_left"]
+        dataset_right = kwargs["dataset_right"]
         for dataset in [dataset_left, dataset_right]:
             count = Counter(dataset[:, -1])
             counts.append(count)
@@ -597,29 +590,18 @@ class ClassificationTree(Tree):
 
 
 class RegressionTree(Tree):
-    def __init__(self, dataset=None, min_sample_split=2, max_depth=100):
-        """
-        Regression Tree - Ml algorithm.
-
-        :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
-        :param min_sample_split: Minimal samples required to split dataset.
-        :param max_depth: Maximal depth of the tree.
-        """
-        super().__init__(dataset, min_sample_split=min_sample_split, max_depth=max_depth)
-
-        self.eval_func_split = self.rss_score
-        self.get_leaf_prediction_value = self.get_avg_value
-        self.eval_func_leaf = self.rss_calc
 
     @staticmethod
-    def rss_calc(dataset, feature_index=-1):
+    def evaluate_leaf(**kwargs):
         """
         Calculates rss of column in dataset.
 
-        :param dataset: Dataset with training data.
-        :param feature_index: Index of column to calculate.
         :return: Float rss score.
         """
+        dataset = kwargs["dataset"]
+        feature_index = -1
+        if "feature_index" in kwargs:
+            feature_index = kwargs["feature_index"]
         column = dataset[:, feature_index]
         mean = column.mean()
         rss = 0
@@ -627,17 +609,31 @@ class RegressionTree(Tree):
             rss += (value - mean)**2
         return rss
 
-    def rss_score(self, dataset_left, dataset_right, feature_index):
+    def evaluate_split(self, **kwargs):
         """
         Calculates sum of rss for datasets
 
-        :param dataset_left: Dataset with column smaller than some threshold.
-        :param dataset_right: Dataset with column grater than some threshold.
-        :param feature_index: Index of feature by which rss will be calculated.
         :return: Returns rss of datasets.
         """
-        datasets_rss = [self.rss_calc(dataset, feature_index) for dataset in [dataset_left, dataset_right]]
+        dataset_left = kwargs["dataset_left"]
+        dataset_right = kwargs["dataset_right"]
+        feature_index = kwargs["feature_index"]
+        datasets_rss = [self.evaluate_leaf(dataset=dataset, feature_index=feature_index)
+                        for dataset in [dataset_left, dataset_right]]
         return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
+
+    @staticmethod
+    def set_prediction(**kwargs):
+        """
+        Function that sets prediction value for a leaf.
+
+        :return: Mean of target column or if single sample then just the value.
+        """
+        dataset = kwargs["dataset"]
+        if dataset.shape[0] > 1:
+            return dataset[:, -1].mean()
+        else:
+            return dataset[:, -1][0]
 
     @staticmethod
     def prediction_score(predictions, target, **kwargs):
@@ -658,21 +654,8 @@ class RegressionTree(Tree):
         elif kwargs["mode"] == "rss":
             return sum((vis_df["actual"] - vis_df["predicted"]) ** 2)
 
-    @staticmethod
-    def get_avg_value(dataset):
-        """
-        Function that sets prediction value for a leaf.
 
-        :param dataset: Dataset with training data.
-        :return: Mean of target column or if single sample then just the value.
-        """
-        if dataset.shape[0] > 1:
-            return dataset[:, -1].mean()
-        else:
-            return dataset[:, -1][0]
-
-
-class RandomForest(Tree):
+class RandomForest:
     def __init__(self, dataset=None, tree_type="classification", min_sample_split=2, max_depth=5):
         """
         Random forest algorithm.
@@ -684,7 +667,7 @@ class RandomForest(Tree):
         :param min_sample_split: Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
-        super().__init__(dataset)
+        self.dataset = dataset
         if tree_type == "classification":
             tree_type = ClassificationTree
         elif tree_type == "regression":
@@ -784,7 +767,6 @@ class RandomForest(Tree):
     def build_forest(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
         """
         Builds random forest with best k parameter.
-
 
         :param n: Amount of trees
         :param diff: Specifies amount of k parameters to check.

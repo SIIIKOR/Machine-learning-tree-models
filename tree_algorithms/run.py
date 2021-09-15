@@ -9,28 +9,24 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from time import time
-import tracemalloc
 
 if __name__ == '__main__':
-    iris = load_iris()
+    iris = load_boston()
     train_df = pd.DataFrame(data=iris["data"], columns=iris["feature_names"])
     target_df = pd.DataFrame(data=iris["target"], columns=["target"])
 
-    # train_df, target_df, test_df = make_test_data(train_df, target_df, 140)
-    # print(train_df.shape)
-    # print(target_df.shape)
-    # print(test_df.shape)
+    train_df, target_df, test_df = make_test_data(train_df, target_df, 10)
+    print(train_df.shape)
+    print(target_df.shape)
+    print(test_df.shape)
     dataset = pd.concat([train_df, target_df], axis=1)
     s = time()
     rf = RandomForest(dataset, tree_type="classification", min_sample_split=2, max_depth=100)
-    # rf.build_trees(100)
-    tracemalloc.start()
+    rf.build_trees(100)
     rf.build_forest(100)
-    print(tracemalloc.get_traced_memory())
-    tracemalloc.stop()
     e = time()
     print(e-s, "seconds")
-    # rf.predict(test_df)
+    predictions = rf.predict(test_df)
 
 
 
