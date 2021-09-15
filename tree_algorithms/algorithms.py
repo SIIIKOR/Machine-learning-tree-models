@@ -592,6 +592,19 @@ class ClassificationTree(Tree):
 class RegressionTree(Tree):
 
     @staticmethod
+    def set_prediction(**kwargs):
+        """
+        Function that sets prediction value for a leaf.
+
+        :return: Mean of target column or if single sample then just the value.
+        """
+        dataset = kwargs["dataset"]
+        if dataset.shape[0] > 1:
+            return dataset[:, -1].mean()
+        else:
+            return dataset[:, -1][0]
+
+    @staticmethod
     def evaluate_leaf(**kwargs):
         """
         Calculates rss of column in dataset.
@@ -621,19 +634,6 @@ class RegressionTree(Tree):
         datasets_rss = [self.evaluate_leaf(dataset=dataset, feature_index=feature_index)
                         for dataset in [dataset_left, dataset_right]]
         return {"score": sum(datasets_rss), "datasets_rss": datasets_rss}
-
-    @staticmethod
-    def set_prediction(**kwargs):
-        """
-        Function that sets prediction value for a leaf.
-
-        :return: Mean of target column or if single sample then just the value.
-        """
-        dataset = kwargs["dataset"]
-        if dataset.shape[0] > 1:
-            return dataset[:, -1].mean()
-        else:
-            return dataset[:, -1][0]
 
     @staticmethod
     def prediction_score(predictions, target, **kwargs):
