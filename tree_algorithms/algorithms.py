@@ -459,7 +459,7 @@ class Tree(ABC):
                 final_model = i
         return initial_variants[final_model, :][1]
 
-    def print_tree(self, root_node=None, x=None, target=None, indent="-", target_names=None):
+    def print_tree(self, root_node=None, x=None, target=None, indent="-", feature_names=None, target_names=None):
         """
         Prints out the tree structure.
         Have to create tree with specific Nodes to see size and split_score.
@@ -468,6 +468,7 @@ class Tree(ABC):
         :param x: Train data for fit function.
         :param target: Target data for fit function.
         :param indent: Symbol used to make indents.
+        :param feature_names: List with names of features.
         :param target_names: List with names of target classes.
         :return: String representation of the tree.
         """
@@ -489,9 +490,9 @@ class Tree(ABC):
                 print(f"class: {target_names[int(node.value)] if target_names else node.value}")
             else:
                 if isinstance(node, VisDecisionNode):
-                    print(self.features[node.feature_index], "<=", node.threshold, "?", node.split_score)
+                    print(feature_names[node.feature_index], "<=", node.threshold, "?", node.split_score)
                 else:
-                    print(self.features[node.feature_index], "<=", node.threshold)
+                    print(feature_names[node.feature_index], "<=", node.threshold)
                 print(f"{multi * indent}left: ", end="")
                 _print_tree(node.left, multi=multi + 1, )
                 print(f"{multi * indent}right: ", end="")
