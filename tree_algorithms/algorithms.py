@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 import copy
 
 import numpy as np
-import pandas as pd
 
 from functions import cross_validate
 
@@ -106,7 +105,7 @@ class Tree(ABC):
         """
         Abstract class used to inherit from for classification tree and regression tree.
 
-        :param dataset: Pandas dataframe with numeric training and target data(must be the last column).
+        :param dataset: numpy array with numeric training and target data(must be the last column).
         :param min_sample_split: Pre-pruning - Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
@@ -117,24 +116,6 @@ class Tree(ABC):
 
         self.node_type = DecisionNode
         self.leaf_type = Leaf
-
-    @property
-    def features(self):
-        """
-        Returns column names of the dataset.
-
-        :return: List of names of the columns.
-        """
-        return self.dataset.columns
-
-    @property
-    def numpy_data(self):
-        """
-        Returns np.array with the data.
-
-        :return: dataset transformed to np.array.
-        """
-        return self.dataset.to_numpy()
 
     @staticmethod
     def generate_thresholds(column):
@@ -240,6 +221,7 @@ class Tree(ABC):
                 for _ in range(len(queue)):
                     is_left, current_dataset, current_parent = queue.popleft()
                     sample_amount, feature_amount = current_dataset.shape
+                    # if this is random forest
                     if k_parameter:
                         possible_index = np.arange(feature_amount-1)
                         random_features = np.random.choice(possible_index, k_parameter, replace=False)
@@ -321,15 +303,14 @@ class Tree(ABC):
                                   leaf_eval_score=self.evaluate_split(dataset), size=len(dataset))
 
         if self.dataset is None:
-            self.dataset = x
-            self.dataset["target"] = target
+            self.dataset = np.append(x, target, axis=1)
         if mode == "prune":
             self.node_type = PruningDecisionNode
             self.leaf_type = PruningLeaf
         elif mode == "vis":
             self.node_type = VisDecisionNode
             self.leaf_type = VisLeaf
-        self.root = build_tree_iterative(self.dataset.to_numpy())
+        self.root = build_tree_iterative(self.dataset)
 
     def make_prediction(self, sample, node=None):
         """
@@ -358,7 +339,7 @@ class Tree(ABC):
         :param x: Dataset with data to predict.
         :return: Returns predictions.
         """
-        test = x.iloc[:, :-1].to_numpy()
+        test = x[:, :-1]
         predictions = [self.make_prediction(sample) for sample in test]
         return predictions
 
@@ -369,6 +350,8 @@ class Tree(ABC):
     def cost_complexity_pruning(self):
         """
         cost complexity pruning algorithm.
+
+        After changes, doesn't work needs an update.
 
         Pretty much works terribly. Maybe i did something wrong in the implementation.
         It's surely makes predictions worse so maybe over-fitting is less noticeable.
@@ -550,6 +533,7 @@ class ClassificationTree(Tree):
     def evaluate_split(**kwargs):
         """
         Calculates gini index for given datasets and decides whether it was the last split.
+
         :return: weighted gini index, information whether this split should be final.
         """
         scores = []
@@ -585,7 +569,7 @@ class ClassificationTree(Tree):
         :param target: Real values.
         :return: Success rate of prediction.
         """
-        target = target.iloc[:, -1].to_numpy()
+        target = target[:, -1]
         return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions)
 
 
@@ -645,14 +629,12 @@ class RegressionTree(Tree):
         :param kwargs: Mode - parameter used to chose type of output: rss or mse.
         :return: Float mse score
         """
-        vis_df = pd.DataFrame()
-        vis_df["predicted"] = predictions
-        vis_df["actual"] = target.iloc[:, -1].to_numpy()
+        target = target.iloc[:, -1].to_numpy()
         if kwargs["mode"] == "mse":
-            mse_score_final = sum((vis_df["actual"] - vis_df["predicted"]) ** 2) / vis_df.shape[0]
+            mse_score_final = sum((target - predictions) ** 2) / len(predictions)
             return mse_score_final
         elif kwargs["mode"] == "rss":
-            return sum((vis_df["actual"] - vis_df["predicted"]) ** 2)
+            return sum((target - predictions) ** 2)
 
 
 class RandomForest:
@@ -723,7 +705,7 @@ class RandomForest:
             out_of_bag_indexes = np.fromiter(all_indexes - Counter(bootstrapped_indexes).keys(), int)
             yield bootstrapped_indexes, out_of_bag_indexes
 
-    def build_trees(self, n, bt_dataset=None, sample_amount=None, k_parameter=None, min_sample_split=None,
+    def build_trees(self, n, bt_dataset=None, k_parameter=None, min_sample_split=None,
                     max_depth=None, m=None):
         """
         Builds random forest for given k parameter.
@@ -731,7 +713,6 @@ class RandomForest:
         :param n: Amount of trees.
         :param bt_dataset: list of tuples containing array of
          sample indexes for bootstrap dataset and it's corresponding out of bag samples
-        :param sample_amount: Amount of samples in dataset.
         :param k_parameter: Amount of features which will be randomly selected at each step while building given tree.
         :param min_sample_split: Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
@@ -743,20 +724,21 @@ class RandomForest:
         if max_depth is not None:
             self.max_depth = max_depth
         if bt_dataset is None:
+            sample_amount = len(self.dataset)
             bt_dataset = self.bootstrap_dataset_generator(n, m, sample_amount)
         if k_parameter is None:
-            sample_amount, feature_amount = self.dataset.shape
+            feature_amount = self.dataset.shape[1]
             k_parameter = int(np.sqrt(feature_amount))
 
         trees = []
         oob_predictions_scores = []
         for el in bt_dataset:
             bootstrapped_index, out_of_bag_indexes = el
-            new_tree = self.tree_type(self.dataset.loc[bootstrapped_index],
+            new_tree = self.tree_type(self.dataset[bootstrapped_index],
                                       min_sample_split=self.min_sample_split,
                                       max_depth=self.max_depth)
             new_tree.fit(k_parameter=k_parameter)
-            oob_dataset = self.dataset.loc[out_of_bag_indexes]
+            oob_dataset = self.dataset[out_of_bag_indexes]
             oob_prediction = new_tree.predict(oob_dataset)
             score = new_tree.prediction_score(oob_prediction, oob_dataset, mode="rss")
             oob_predictions_scores.append(score)
@@ -789,7 +771,7 @@ class RandomForest:
 
         best_rf, best_rf_accuracy_estimate = None, None
         for k in range(low_boundary, high_boundary):  # creating forests with different k parameters.
-            accuracy_estimate, trees = self.build_trees(n, bootstrapped_datasets, sample_amount, k,
+            accuracy_estimate, trees = self.build_trees(n, bootstrapped_datasets, k,
                                                         min_sample_split, max_depth, m)
 
             if best_rf_accuracy_estimate is None:

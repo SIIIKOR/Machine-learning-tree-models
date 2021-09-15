@@ -86,3 +86,13 @@ def cross_validate(model, k=10, mode=None, model_type="regression", min_sample_s
         return best_model[1]
     else:
         return models
+
+
+def generate_nan(train_dataset, n):
+    """Function used to create random nan for test purposes."""
+
+    data = train_dataset.to_numpy()
+    for _ in range(n):
+        y, x = np.random.randint(data.shape[0]), np.random.randint(data.shape[1])
+        data[y, x] = np.nan
+    return pd.DataFrame(data, columns=train_dataset.columns)
