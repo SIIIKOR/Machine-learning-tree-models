@@ -184,9 +184,11 @@ class Tree(ABC):
     @abstractmethod
     def evaluate_split(self, **kwargs):
         """Function used to rate given split."""
+
     @abstractmethod
     def set_prediction(self, **kwargs):
         """Function used to set prediction value for a leaf."""
+
     @abstractmethod
     def evaluate_leaf(self, **kwargs):
         """Function used to rate leaf."""
@@ -223,7 +225,7 @@ class Tree(ABC):
                     sample_amount, feature_amount = current_dataset.shape
                     # if this is random forest
                     if k_parameter:
-                        possible_index = np.arange(feature_amount-1)
+                        possible_index = np.arange(feature_amount - 1)
                         random_features = np.random.choice(possible_index, k_parameter, replace=False)
                         feature_range = random_features
                     else:
@@ -299,8 +301,8 @@ class Tree(ABC):
                     return self.node_type(feature_index, threshold, left_subtree, right_subtree,
                                           split_score=split_score)
 
-            return self.leaf_type(self.set_prediction(dataset),
-                                  leaf_eval_score=self.evaluate_split(dataset), size=len(dataset))
+            return self.leaf_type(self.set_prediction(dataset=dataset),
+                                  leaf_eval_score=self.evaluate_split(dataset=dataset), size=len(dataset))
 
         if self.dataset is None:
             self.dataset = np.append(x, target, axis=1)
@@ -312,25 +314,36 @@ class Tree(ABC):
             self.leaf_type = VisLeaf
         self.root = build_tree_iterative(self.dataset)
 
-    def make_prediction(self, sample, node=None):
+    def traverse_tree_recursive(self, sample, node=None):
         """
         Recursive function for traversing the tree and thus data prediction.
 
         :param sample: Vector with data to predict.
         :param node: Current root_node.
-        :return: Prediction.
+        :return: Leaf node
         """
         if node is None:
             node = self.root
         if isinstance(node, Leaf):
-            return node.value
+            return node
         else:
             feature_index = node.feature_index
             threshold = node.threshold
             if sample[feature_index] <= threshold:
-                return self.make_prediction(sample, node.left)
+                return self.traverse_tree_recursive(sample, node.left)
             else:
-                return self.make_prediction(sample, node.right)
+                return self.traverse_tree_recursive(sample, node.right)
+
+    def traverse_tree_iterative(self, sample):
+        curr = self.root
+        while not isinstance(curr, Leaf):
+            feature_index = curr.feature_index
+            threshold = curr.threshold
+            if sample[feature_index] <= threshold:
+                curr = curr.left
+            else:
+                curr = curr.right
+        return curr
 
     def predict(self, x):
         """
@@ -340,11 +353,11 @@ class Tree(ABC):
         :return: Returns predictions.
         """
         test = x[:, :-1]
-        predictions = [self.make_prediction(sample) for sample in test]
+        predictions = [self.traverse_tree_iterative(sample).value for sample in test]
         return predictions
 
     @abstractmethod
-    def prediction_score(self):
+    def prediction_score(self, *args):
         """Calculates prediction score for a given tree type."""
 
     def cost_complexity_pruning(self):
@@ -451,11 +464,11 @@ class Tree(ABC):
             rss_scores = [m.prediction_score(m.predict(test_data), test_data) for m in variants[:, 1]]
             min_rss_index = np.argmin(rss_scores)
             alphas.append(variants[min_rss_index, 0])
-        avg_alpha = sum(alphas)/len(alphas)
+        avg_alpha = sum(alphas) / len(alphas)
         initial_alphas = initial_variants[:, 0]
         final_model = None
-        for i in range(len(initial_alphas)-1):
-            if initial_alphas[i] < avg_alpha < initial_alphas[i+1]:
+        for i in range(len(initial_alphas) - 1):
+            if initial_alphas[i] < avg_alpha < initial_alphas[i + 1]:
                 final_model = i
         return initial_variants[final_model, :][1]
 
@@ -472,6 +485,7 @@ class Tree(ABC):
         :param target_names: List with names of target classes.
         :return: String representation of the tree.
         """
+
         def _print_tree(node=None, multi=1):
             """
             Recursive function for creating string representation of the tree.
@@ -558,7 +572,7 @@ class ClassificationTree(Tree):
             if counts[0].keys() == counts[1].keys():
                 is_final = True
         weighted_gini = (len(dataset_left) * scores[0] + len(dataset_right) * scores[1]) / (
-                    len(dataset_left) + len(dataset_right))
+                len(dataset_left) + len(dataset_right))
         return {"score": weighted_gini, "is_final": is_final}
 
     @staticmethod
@@ -571,7 +585,7 @@ class ClassificationTree(Tree):
         :return: Success rate of prediction.
         """
         target = target[:, -1]
-        return len([el for el in zip(predictions, target) if el[0] == el[1]])/len(predictions)
+        return len([el for el in zip(predictions, target) if el[0] == el[1]]) / len(predictions)
 
 
 class RegressionTree(Tree):
@@ -604,7 +618,7 @@ class RegressionTree(Tree):
         mean = column.mean()
         rss = 0
         for value in column:
-            rss += (value - mean)**2
+            rss += (value - mean) ** 2
         return rss
 
     def evaluate_split(self, **kwargs):
@@ -639,7 +653,8 @@ class RegressionTree(Tree):
 
 
 class RandomForest:
-    def __init__(self, dataset=None, tree_type="classification", min_sample_split=2, max_depth=5):
+    def __init__(self, dataset=None, categorical_indexes=None, tree_type="classification",
+                 min_sample_split=2, max_depth=5):
         """
         Random forest algorithm.
 
@@ -651,12 +666,14 @@ class RandomForest:
         :param max_depth: Maximal depth of the tree.
         """
         self.dataset = dataset
+        self.categorical_indexes = set(categorical_indexes)
         if tree_type == "classification":
             tree_type = ClassificationTree
         elif tree_type == "regression":
             tree_type = RegressionTree
         self.tree_type = tree_type
         self.trees = None
+        self.accuracy_estimation = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
 
@@ -675,7 +692,7 @@ class RandomForest:
         all_indexes = set(np.arange(sample_amount))
         bt_datasets = []
         for _ in range(n):
-            bootstrapped_indexes = np.random.random_integers(0, sample_amount-1, m)
+            bootstrapped_indexes = np.random.random_integers(0, sample_amount - 1, m)
             out_of_bag_indexes = np.fromiter(all_indexes - Counter(bootstrapped_indexes).keys(), int)
             bt_datasets.append((bootstrapped_indexes, out_of_bag_indexes))
         return bt_datasets
@@ -720,6 +737,7 @@ class RandomForest:
         :param m: Optional parameter, you can limit sample amount per bootstrapped dataset
         :return: float accuracy_estimate and list of trees
         """
+        # handling different input variants
         if min_sample_split is not None:
             self.min_sample_split = min_sample_split
         if max_depth is not None:
@@ -733,21 +751,28 @@ class RandomForest:
 
         trees = []
         oob_predictions_scores = []
+        # iterate over bootstrapped datasets
         for el in bt_dataset:
             bootstrapped_index, out_of_bag_indexes = el
+            # for each dataset build tree for a given k_parameter
             new_tree = self.tree_type(self.dataset[bootstrapped_index],
                                       min_sample_split=self.min_sample_split,
                                       max_depth=self.max_depth)
             new_tree.fit(k_parameter=k_parameter)
+            # out of bag samples which are used to estimate accuracy
             oob_dataset = self.dataset[out_of_bag_indexes]
+            # we make predictions with this data
             oob_prediction = new_tree.predict(oob_dataset)
+            # and we compute how good our prediction was
             score = new_tree.prediction_score(oob_prediction, oob_dataset, mode="rss")
+
             oob_predictions_scores.append(score)
             trees.append(new_tree)
-        rf_accuracy_estimate = sum(oob_predictions_scores)/len(oob_predictions_scores)
+        # accuracy estimate is the mean of all estimations
+        rf_accuracy_estimate = sum(oob_predictions_scores) / len(oob_predictions_scores)
         return rf_accuracy_estimate, trees
 
-    def build_forest(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
+    def build_trees_with_finding_k(self, n, diff=None, min_sample_split=None, max_depth=None, m=None):
         """
         Builds random forest with best k parameter.
 
@@ -764,29 +789,194 @@ class RandomForest:
         bootstrapped_datasets = self.bootstrap_dataset(n, m, sample_amount)
         # uncomment to use generator for creating bootstrapped dataset but it may be wrong for picking best k
         # bootstrapped_datasets = None
-        init_k_para = int(np.sqrt(feature_amount-1))
+        init_k_para = int(np.sqrt(feature_amount - 1))
         if diff is None:  # creating boundaries of k to test.
             diff = init_k_para
-        low_boundary = init_k_para-diff if init_k_para-diff >= 1 else 1
-        high_boundary = init_k_para+diff+1 if init_k_para+diff+1 < feature_amount else feature_amount-1
+        low_boundary = init_k_para - diff if init_k_para - diff >= 1 else 1
+        high_boundary = init_k_para + diff + 1 if init_k_para + diff + 1 < feature_amount else feature_amount - 1
 
         best_rf, best_rf_accuracy_estimate = None, None
         for k in range(low_boundary, high_boundary):  # creating forests with different k parameters.
             accuracy_estimate, trees = self.build_trees(n, bootstrapped_datasets, k,
                                                         min_sample_split, max_depth, m)
 
-            if best_rf_accuracy_estimate is None:
+            if best_rf_accuracy_estimate is None:  # first iteration
                 best_rf_accuracy_estimate = accuracy_estimate
                 best_rf = trees
-            if isinstance(self.tree_type, ClassificationTree):
+            if isinstance(self.tree_type, ClassificationTree):  # classification tree maximises prediction percentage
                 cond = accuracy_estimate > best_rf_accuracy_estimate
             else:
-                cond = accuracy_estimate < best_rf_accuracy_estimate
-            if cond:
+                cond = accuracy_estimate < best_rf_accuracy_estimate  # regression tree minimizes rss
+            if cond:  # every non first iteration
                 best_rf_accuracy_estimate = accuracy_estimate
                 best_rf = trees
         self.trees = best_rf
-        print(best_rf_accuracy_estimate)
+        self.accuracy_estimation = best_rf_accuracy_estimate
+
+    @staticmethod
+    def fill_nan_basic(dataset, nan_indexes, categorical_indexes, mode="median"):
+        if mode == "median":
+            func = np.nanmedian
+        else:
+            func = np.nanmean
+        statistic_dict = {}
+        # iterate over all nan values
+        for nan_index in zip(nan_indexes[0], nan_indexes[1]):
+            nan_sample_index, nan_feature_index = nan_index
+            # if we know fill value for given column we don't calculate it again
+            if nan_feature_index not in statistic_dict:
+                # if column is categorical type
+                if nan_feature_index in categorical_indexes:
+                    # we pick the most occurring non nan value
+                    values, counts = np.unique(dataset[:, nan_feature_index][~np.isnan(dataset[:, nan_feature_index])],
+                                               return_counts=True)
+                    stat = values[np.argmax(counts)]
+                else:  # if this is numerical column we calculate mean or median excluding nan
+                    stat = func(dataset[:, nan_feature_index])
+                statistic_dict[nan_feature_index] = stat
+            else:
+                stat = statistic_dict[nan_feature_index]
+            dataset[nan_sample_index, nan_feature_index] = stat
+
+    @staticmethod
+    def create_proximity_matrix(dataset, trees):
+        sample_amount = len(dataset)
+        proximity_matrix = np.zeros((sample_amount, sample_amount))
+        # for each tree
+        for tree in trees:
+            leaves = {}
+            # we run down all the data and remember which samples landed in the same leaf node
+            for index in range(sample_amount):
+                sample = dataset[index]
+                leaf = tree.traverse_tree_iterative(sample)
+                if id(leaf) not in leaves:
+                    leaves[id(leaf)] = [index]
+                else:
+                    leaves[id(leaf)].append(index)
+            # we fill proximity matrix
+            for key in leaves:
+                samples_together = leaves[key]
+                for sample_one in samples_together:
+                    for sample_two in samples_together:
+                        proximity_matrix[sample_one, sample_two] += 1
+        # we return proximity matrix divided by the number of trees
+        return proximity_matrix / len(trees)
+
+    @staticmethod
+    def unique_with_indexes(column):
+        indexes = {}
+        for i in range(len(column)):
+            if np.isnan(column[i]):
+                continue
+            if column[i] not in indexes:
+                indexes[column[i]] = [i]
+            else:
+                indexes[column[i]].append(i)
+        return indexes
+
+    @staticmethod
+    def weighted_average(column, proximity_matrix_row):
+        estimate = 0
+        for sample_index in range(len(column)):
+            value = column[sample_index]
+            if not np.isnan(value):
+                weight = proximity_matrix_row[sample_index]
+                estimate += value * weight
+        return estimate / sum(proximity_matrix_row)
+
+    def fill_nan_with_tree_estimate(self, dataset, last_proximity_matrix, nan_indexes, categorical_indexes):
+        for nan_index in zip(nan_indexes[0], nan_indexes[1]):
+            nan_sample_index, nan_feature_index = nan_index
+            # for categorical data
+            if nan_feature_index in categorical_indexes:
+                # find index of each value
+                # val: list of indexes
+                index_dict = self.unique_with_indexes(dataset[:, nan_feature_index])
+                # sum all non nan occurrences
+                all_occurrences = sum([len(v) for v in index_dict.values()])
+                # sum all proximity scores for given sample with nan value
+                all_proximities = sum(last_proximity_matrix[nan_sample_index, :])
+                weighted_freq = {}
+                # for every non nan value
+                for val in index_dict:
+                    # calculate probability of occurring this value
+                    probability = len(index_dict[val]) / all_occurrences
+                    # find indexes of all occurrences of this value in worked on column
+                    # calculate sum of proximities with this value by all proximities for worked on sample
+                    weight = sum(last_proximity_matrix[nan_sample_index, index_dict[val]]) / all_proximities
+                    weighted_freq[val] = probability * weight
+                # pick estimate with best weighted_freq
+                best_fill = max(weighted_freq, key=lambda x: weighted_freq[x])
+                dataset[nan_sample_index, nan_feature_index] = best_fill
+            else:
+                dataset[nan_sample_index, nan_feature_index] = self.weighted_average(dataset[:, nan_feature_index],
+                                                                                     last_proximity_matrix[
+                                                                                     nan_sample_index, :])
+
+    def fill_nan_with_tree_estimate_numpy(self, dataset, last_proximity_matrix, nan_indexes, categorical_indexes):
+        for nan_index in zip(nan_indexes[0], nan_indexes[1]):
+            nan_sample_index, nan_feature_index = nan_index
+            # for categorical data
+            if nan_feature_index in categorical_indexes:
+                # find index of each value
+                values, counts = np.unique(dataset[:, nan_feature_index], return_counts=True)
+                # sum all non nan occurrences
+                all_occurrences = sum(counts[:-1])
+                # sum all proximity scores for given sample with nan value
+                all_proximities = sum(last_proximity_matrix[nan_sample_index, :])
+                weighted_freq = {}
+                # for every non nan value
+                for i in range(len(values) - 1):
+                    # calculate probability of occurring this value
+                    probability = counts[i] / all_occurrences
+                    # find indexes of all occurrences of this value in worked on column
+                    indexes_with_value = np.where(dataset[:, nan_feature_index] == values[i])
+                    # calculate sum of proximities with this value by all proximities for worked on sample
+                    weight = sum(last_proximity_matrix[nan_sample_index, indexes_with_value]) / all_proximities
+                    weighted_freq[values[i]] = probability * weight
+                # pick estimate with best weighted_freq
+                best_fill = max(weighted_freq, key=lambda x: weighted_freq[x])
+                dataset[nan_sample_index, nan_feature_index] = best_fill
+            else:
+                dataset[nan_sample_index, nan_feature_index] = self.weighted_average(dataset[:, nan_feature_index],
+                                                                                     last_proximity_matrix[
+                                                                                     nan_sample_index, :])
+
+    @staticmethod
+    def estimations_changed(dataset_old, dataset_new, nan_indexes):
+        old_estimates = dataset_old[nan_indexes]
+        new_estimates = dataset_new[nan_indexes]
+        return (old_estimates != new_estimates).any()
+
+    def build_forest(self, n):
+        nan_indexes = np.where(np.isnan(self.dataset))
+        if len(nan_indexes[0]):  # if nan values are in dataset
+            categorical_indexes = self.categorical_indexes
+            curr_estimated_dataset = self.dataset.copy()
+            # initially fill nans with median, mean or most occurring value, later we will improve these estimations
+            self.fill_nan_basic(curr_estimated_dataset, nan_indexes, categorical_indexes)
+            # we will compare estimations with each other, in first iteration we set it to none
+            older_estimated_dataset = None
+            i = 0
+            changed = True
+            # while we haven't repeated 7 times
+            while i < 7 or not changed:
+                # 1) build forest with estimated data
+                rf = RandomForest(curr_estimated_dataset)
+                estimation, trees = rf.build_trees(n)
+                # 2) create proximity matrix with new forest and base data
+                proximity_matrix = rf.create_proximity_matrix(self.dataset, trees)
+                # set older estimation to current estimation
+                older_estimated_dataset = curr_estimated_dataset
+                # erase current estimation
+                curr_estimated_dataset = self.dataset.copy()
+                # 3) calculate better estimations and set it to current
+                self.fill_nan_with_tree_estimate(curr_estimated_dataset, proximity_matrix,
+                                                 nan_indexes, categorical_indexes)
+                i += 1
+                changed = self.estimations_changed(curr_estimated_dataset, older_estimated_dataset, nan_indexes)
+                self.dataset = curr_estimated_dataset
+        self.build_trees_with_finding_k(n)
 
     def predict(self, x):
         """
@@ -802,12 +992,12 @@ class RandomForest:
             sample, sample_target = test[i, :], target[i]
             variants = []
             for tree in self.trees:
-                prediction_variant = tree.make_prediction(sample)
+                prediction_variant = tree.traverse_tree_recursive(sample)
                 variants.append(prediction_variant)
             if self.tree_type is ClassificationTree:
                 count = Counter(variants)
                 most_common_value = max(count, key=lambda k: count[k])
                 predictions.append((most_common_value, sample_target))
             else:
-                predictions.append((sum(variants)/len(variants), sample_target))
+                predictions.append((sum(variants) / len(variants), sample_target))
         return predictions

@@ -93,6 +93,6 @@ def generate_nan(train_dataset, n):
 
     data = train_dataset.to_numpy()
     for _ in range(n):
-        y, x = np.random.randint(data.shape[0]), np.random.randint(data.shape[1])
-        data[y, x] = np.nan
+        sample_index, feature_index = np.random.randint(data.shape[0]), np.random.randint(data.shape[1])
+        data[sample_index, feature_index] = np.nan
     return pd.DataFrame(data, columns=train_dataset.columns)
