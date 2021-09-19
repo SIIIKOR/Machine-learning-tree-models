@@ -109,7 +109,12 @@ class Tree(ABC):
         :param min_sample_split: Pre-pruning - Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
-        self.dataset = dataset
+        if isinstance(dataset, np.ndarray):  # if input is numpy array
+            self.dataset = dataset
+            self.feature_names = [f"X{i}." for i in range(dataset.shape[1])]
+        else:  # if input is pandas dataframe
+            self.dataset = dataset.to_numpy()
+            self.feature_names = dataset.columns
         self.root = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
@@ -306,12 +311,14 @@ class Tree(ABC):
 
         if self.dataset is None:
             self.dataset = np.append(x, target, axis=1)
+
         if mode == "prune":
             self.node_type = PruningDecisionNode
             self.leaf_type = PruningLeaf
         elif mode == "vis":
             self.node_type = VisDecisionNode
             self.leaf_type = VisLeaf
+
         self.root = build_tree_iterative(self.dataset)
 
     def traverse_tree_recursive(self, sample, node=None):
@@ -504,9 +511,9 @@ class Tree(ABC):
                 print(f"class: {target_names[int(node.value)] if target_names else node.value}")
             else:
                 if isinstance(node, VisDecisionNode):
-                    print(feature_names[node.feature_index], "<=", node.threshold, "?", node.split_score)
+                    print(self.feature_names[node.feature_index], "<=", node.threshold, "?", node.split_score)
                 else:
-                    print(feature_names[node.feature_index], "<=", node.threshold)
+                    print(self.feature_names[node.feature_index], "<=", node.threshold)
                 print(f"{multi * indent}left: ", end="")
                 _print_tree(node.left, multi=multi + 1, )
                 print(f"{multi * indent}right: ", end="")
@@ -653,7 +660,7 @@ class RegressionTree(Tree):
 
 
 class RandomForest:
-    def __init__(self, dataset=None, categorical_indexes=None, tree_type="classification",
+    def __init__(self, dataset, categorical_indexes=None, tree_type="classification",
                  min_sample_split=2, max_depth=5):
         """
         Random forest algorithm.
@@ -665,8 +672,16 @@ class RandomForest:
         :param min_sample_split: Minimal samples required to split dataset.
         :param max_depth: Maximal depth of the tree.
         """
-        self.dataset = dataset
-        self.categorical_indexes = set(categorical_indexes)
+        # if input is numpy array
+        if isinstance(dataset, np.ndarray):
+            self.dataset = dataset
+        else:  # if input is pandas dataframe
+            self.dataset = dataset.to_numpy()
+            self.feature_names = dataset.columns
+
+        if categorical_indexes is not None:
+            self.categorical_indexes = set(categorical_indexes)
+
         if tree_type == "classification":
             tree_type = ClassificationTree
         elif tree_type == "regression":
@@ -956,7 +971,6 @@ class RandomForest:
             # initially fill nans with median, mean or most occurring value, later we will improve these estimations
             self.fill_nan_basic(curr_estimated_dataset, nan_indexes, categorical_indexes)
             # we will compare estimations with each other, in first iteration we set it to none
-            older_estimated_dataset = None
             i = 0
             changed = True
             # while we haven't repeated 7 times

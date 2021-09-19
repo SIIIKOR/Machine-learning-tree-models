@@ -21,7 +21,7 @@ if __name__ == '__main__':
     dataset = pd.concat([train_df, target_df], axis=1)
 
     s = time()
-    rf = RandomForest(dataset.to_numpy(), tree_type="classification", min_sample_split=2, max_depth=100)
+    rf = RandomForest(dataset, tree_type="classification", min_sample_split=2, max_depth=100)
     rf.build_forest(100)
     e = time()
     print(e-s, "seconds")
