@@ -1,8 +1,10 @@
 from collections import Counter, deque
 from abc import ABC, abstractmethod
 import copy
+from itertools import product
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 from functions import cross_validate
 
@@ -679,7 +681,9 @@ class RandomForest:
             self.dataset = dataset.to_numpy()
             self.feature_names = dataset.columns
 
-        if categorical_indexes is not None:
+        if categorical_indexes is None:
+            self.categorical_indexes = set([])
+        else:
             self.categorical_indexes = set(categorical_indexes)
 
         if tree_type == "classification":
@@ -689,6 +693,7 @@ class RandomForest:
         self.tree_type = tree_type
         self.trees = None
         self.accuracy_estimation = None
+        self.proximity_matrix = None
         self.min_sample_split = min_sample_split
         self.max_depth = max_depth
 
@@ -830,6 +835,15 @@ class RandomForest:
 
     @staticmethod
     def fill_nan_basic(dataset, nan_indexes, categorical_indexes, mode="median"):
+        """
+        Function to fill nan values in dataset with median|mean|most common value
+
+        :param dataset: Numpy array.
+        :param nan_indexes: tuple of nan values indexes.
+        :param categorical_indexes: Set with feature indexes of columns with categorical data.
+        :param mode: Str specifies whether to use median or mean.
+        :return: Returns nothing.
+        """
         if mode == "median":
             func = np.nanmedian
         else:
@@ -855,6 +869,13 @@ class RandomForest:
 
     @staticmethod
     def create_proximity_matrix(dataset, trees):
+        """
+        Builds proximity matrix for samples from dataset.
+
+        :param dataset: Numpy array.
+        :param trees: List of trees representing random forest.
+        :return: Returns proximity matrix
+        """
         sample_amount = len(dataset)
         proximity_matrix = np.zeros((sample_amount, sample_amount))
         # for each tree
@@ -879,6 +900,12 @@ class RandomForest:
 
     @staticmethod
     def unique_with_indexes(column):
+        """
+        Functions for finding unique values with it's corresponding indexes
+
+        :param column: Numpy array with column.
+        :return: Dict.
+        """
         indexes = {}
         for i in range(len(column)):
             if np.isnan(column[i]):
@@ -891,6 +918,13 @@ class RandomForest:
 
     @staticmethod
     def weighted_average(column, proximity_matrix_row):
+        """
+        Calculates weighted average for nan sample with weight being proximity matrix.
+
+        :param column: Numpy array with samples from given feature column.
+        :param proximity_matrix_row: Numpy array with proximity matrix nan sample row.
+        :return: Float Weighted average.
+        """
         estimate = 0
         for sample_index in range(len(column)):
             value = column[sample_index]
@@ -963,34 +997,57 @@ class RandomForest:
         new_estimates = dataset_new[nan_indexes]
         return (old_estimates != new_estimates).any()
 
-    def build_forest(self, n):
+    def build_forest(self, n, fast=False, iter_amount=7):
         nan_indexes = np.where(np.isnan(self.dataset))
         if len(nan_indexes[0]):  # if nan values are in dataset
-            categorical_indexes = self.categorical_indexes
             curr_estimated_dataset = self.dataset.copy()
             # initially fill nans with median, mean or most occurring value, later we will improve these estimations
-            self.fill_nan_basic(curr_estimated_dataset, nan_indexes, categorical_indexes)
+            self.fill_nan_basic(curr_estimated_dataset, nan_indexes, self.categorical_indexes)
             # we will compare estimations with each other, in first iteration we set it to none
             i = 0
-            changed = True
+            # changed = True
             # while we haven't repeated 7 times
-            while i < 7 or not changed:
+            # while i < 7 or not changed:
+            while i < iter_amount:
                 # 1) build forest with estimated data
                 rf = RandomForest(curr_estimated_dataset)
                 estimation, trees = rf.build_trees(n)
                 # 2) create proximity matrix with new forest and base data
                 proximity_matrix = rf.create_proximity_matrix(self.dataset, trees)
                 # set older estimation to current estimation
-                older_estimated_dataset = curr_estimated_dataset
+                # older_estimated_dataset = curr_estimated_dataset
                 # erase current estimation
                 curr_estimated_dataset = self.dataset.copy()
                 # 3) calculate better estimations and set it to current
                 self.fill_nan_with_tree_estimate(curr_estimated_dataset, proximity_matrix,
-                                                 nan_indexes, categorical_indexes)
+                                                 nan_indexes, self.categorical_indexes)
                 i += 1
-                changed = self.estimations_changed(curr_estimated_dataset, older_estimated_dataset, nan_indexes)
+                # changed = self.estimations_changed(curr_estimated_dataset, older_estimated_dataset, nan_indexes)
                 self.dataset = curr_estimated_dataset
-        self.build_trees_with_finding_k(n)
+            self.proximity_matrix = proximity_matrix
+
+        if fast:
+            self.accuracy_estimation, self.trees = self.build_trees(n)
+        else:
+            self.build_trees_with_finding_k(n)
+
+    def plot_proximity(self):
+        plt.imshow(self.proximity_matrix)
+        plt.show()
+
+    def get_unique_values_per_column(self):
+        unique_values_per_column = []
+        for i in range(self.dataset.shape[1]-1):  # without target
+            unique_values_per_column.append(Counter(self.dataset[:, i]).keys())
+        return unique_values_per_column
+
+    @staticmethod
+    def get_sample_variants(sample, nan_indexes, unique_values_per_column):
+        sample_variants = []
+        for variant in product(*unique_values_per_column):
+            for i, feature_index in enumerate(nan_indexes):
+                sample[feature_index] = variant[i]
+        return sample_variants
 
     def predict(self, x):
         """
@@ -1000,18 +1057,21 @@ class RandomForest:
         :param x: Dataset with data to predict from.
         :return: Predictions.
         """
-        test, target = x.iloc[:, :-1].to_numpy(), x.iloc[:, -1].to_numpy()
+        if not isinstance(x, np.ndarray):
+            dataset = x.to_numpy()
+        else:
+            dataset = x
         predictions = []
-        for i in range(len(test)):
-            sample, sample_target = test[i, :], target[i]
-            variants = []
+        for i in range(len(dataset)):
+            sample = dataset[i]
+            cumulative_predictions = []
             for tree in self.trees:
-                prediction_variant = tree.traverse_tree_recursive(sample)
-                variants.append(prediction_variant)
+                prediction_variant = tree.traverse_tree_iterative(sample)
+                cumulative_predictions.append(prediction_variant)
             if self.tree_type is ClassificationTree:
-                count = Counter(variants)
+                count = Counter(cumulative_predictions)
                 most_common_value = max(count, key=lambda k: count[k])
-                predictions.append((most_common_value, sample_target))
+                predictions.append(most_common_value)
             else:
-                predictions.append((sum(variants) / len(variants), sample_target))
+                predictions.append(sum(cumulative_predictions) / len(cumulative_predictions))
         return predictions
