@@ -5,7 +5,7 @@ Because of this, this implementation is slower than other available alternatives
 
 This project was created mainly for learning purpose.
 
-## Implemented models
+## Implemented algorithms
 ### Classification tree
 ### Regression tree
 ### tree pruning (although it works badly)
