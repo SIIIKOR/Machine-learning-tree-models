@@ -190,15 +190,15 @@ class Tree(ABC):
 
     @abstractmethod
     def evaluate_split(self, **kwargs):
-        """Function used to rate given split."""
+        """Method used to rate given split."""
 
     @abstractmethod
     def set_prediction(self, **kwargs):
-        """Function used to set prediction value for a leaf."""
+        """Method used to set prediction value for a leaf."""
 
     @abstractmethod
     def evaluate_leaf(self, **kwargs):
-        """Function used to rate leaf."""
+        """Method used to rate leaf."""
 
     def fit(self, x=None, target=None, mode=None, k_parameter=None):
         """
@@ -533,7 +533,7 @@ class ClassificationTree(Tree):
     @staticmethod
     def set_prediction(**kwargs):
         """
-        Function that sets prediction value for a leaf.
+        Method that sets prediction value for a leaf.
 
         :return: Most frequently occurring value in given dataset target column.
 
@@ -545,7 +545,7 @@ class ClassificationTree(Tree):
     @staticmethod
     def evaluate_leaf(**kwargs):
         """
-        Function used for leaf evaluation for potential pruning.
+        Method used for leaf evaluation for potential pruning.
 
         :return: Amount of most commonly occurring value in target column.
         """
@@ -587,7 +587,7 @@ class ClassificationTree(Tree):
     @staticmethod
     def prediction_score(predictions, target, **kwargs):
         """
-        Function for calculating Success rate of prediction.
+        Method for calculating Success rate of prediction.
 
         :param predictions: List with predictions.
         :param target: Real values.
@@ -602,7 +602,7 @@ class RegressionTree(Tree):
     @staticmethod
     def set_prediction(**kwargs):
         """
-        Function that sets prediction value for a leaf.
+        Method that sets prediction value for a leaf.
 
         :return: Mean of target column or if single sample then just the value.
         """
@@ -700,7 +700,7 @@ class RandomForest:
     @staticmethod
     def bootstrap_dataset(n, m, sample_amount):
         """
-        Function for creating bootstrapped datasets.
+        Method for creating bootstrapped datasets.
 
         :param n: Amount of new datasets.
         :param m: Amount of samples in each dataset.
@@ -720,7 +720,7 @@ class RandomForest:
     @staticmethod
     def bootstrap_dataset_generator(n, m, sample_amount):
         """
-        Function for creating bootstrapped datasets.
+        Method for creating bootstrapped datasets.
 
         It's a generator so memory efficiency is much better.
         I'm not sure whether generator won't change randomly
@@ -836,7 +836,7 @@ class RandomForest:
     @staticmethod
     def fill_nan_basic(dataset, nan_indexes, categorical_indexes, mode="median"):
         """
-        Function to fill nan values in dataset with median|mean|most common value
+        Method to fill nan values in dataset with median|mean|most common value
 
         :param dataset: Numpy array.
         :param nan_indexes: tuple of nan values indexes.
@@ -901,7 +901,7 @@ class RandomForest:
     @staticmethod
     def unique_with_indexes(column):
         """
-        Functions for finding unique values with it's corresponding indexes
+        Method for finding unique values with it's corresponding indexes
 
         :param column: Numpy array with column.
         :return: Dict.
@@ -934,6 +934,15 @@ class RandomForest:
         return estimate / sum(proximity_matrix_row)
 
     def fill_nan_with_tree_estimate(self, dataset, last_proximity_matrix, nan_indexes, categorical_indexes):
+        """
+        Method to fill nan values in dataset with weighted frequency which is calculated using proximity matrix.
+
+        :param dataset: Dataset with nan values.
+        :param last_proximity_matrix: Proximity matrix build by running samples down the trees.
+        :param nan_indexes: Indexes of nan values.
+        :param categorical_indexes: Indexes columns with categorical data.
+        :return: Returns nothing.
+        """
         for nan_index in zip(nan_indexes[0], nan_indexes[1]):
             nan_sample_index, nan_feature_index = nan_index
             # for categorical data
@@ -963,6 +972,15 @@ class RandomForest:
                                                                                      nan_sample_index, :])
 
     def fill_nan_with_tree_estimate_numpy(self, dataset, last_proximity_matrix, nan_indexes, categorical_indexes):
+        """
+        Same as before but using some numpy functions. This could work faster, But it's not finished.
+
+        :param dataset:
+        :param last_proximity_matrix:
+        :param nan_indexes:
+        :param categorical_indexes:
+        :return:
+        """
         for nan_index in zip(nan_indexes[0], nan_indexes[1]):
             nan_sample_index, nan_feature_index = nan_index
             # for categorical data
@@ -993,11 +1011,32 @@ class RandomForest:
 
     @staticmethod
     def estimations_changed(dataset_old, dataset_new, nan_indexes):
+        """
+        Checks whether estimations changed.
+
+        :param dataset_old: dataset with old estimations
+        :param dataset_new: dataset with newer estimations
+        :param nan_indexes: indexes of nan values
+        :return: Boolean
+        """
         old_estimates = dataset_old[nan_indexes]
         new_estimates = dataset_new[nan_indexes]
         return (old_estimates != new_estimates).any()
 
     def build_forest(self, n, fast=False, iter_amount=7):
+        """
+        Method that is used to build random forest.
+
+        It checks whether data has nan values. If it does, algorithm proceeds to fill nan values with random forest
+        estimates.
+        Several times the algorithm estimates nan values and then based on estimated dataset constructs new forest.
+
+        :param n: Amount of trees
+        :param fast: Do we want to use just square root of number of feature amount at each step of building given tree
+         or test different forest with different number of feature amount
+        :param iter_amount: Amount of times to iterate to find estimated nan values.
+        :return: Returns nothing.
+        """
         nan_indexes = np.where(np.isnan(self.dataset))
         if len(nan_indexes[0]):  # if nan values are in dataset
             curr_estimated_dataset = self.dataset.copy()
@@ -1032,10 +1071,12 @@ class RandomForest:
             self.build_trees_with_finding_k(n)
 
     def plot_proximity(self):
+        """ Plots proximity of samples on heatmap. """
         plt.imshow(self.proximity_matrix)
         plt.show()
 
     def get_unique_values_per_column(self):
+        """ Returns unique values in every column excluding target. """
         unique_values_per_column = []
         for i in range(self.dataset.shape[1]-1):  # without target
             unique_values_per_column.append(Counter(self.dataset[:, i]).keys())
@@ -1043,6 +1084,7 @@ class RandomForest:
 
     @staticmethod
     def get_sample_variants(sample, nan_indexes, unique_values_per_column):
+        """ Returns all variants of a sample with nan values. """
         sample_variants = []
         for variant in product(*unique_values_per_column):
             for i, feature_index in enumerate(nan_indexes):
